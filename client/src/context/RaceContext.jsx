@@ -260,7 +260,8 @@ export const RaceProvider = ({ children }) => {
       joinPublicRace,
       setPlayerReady,
       updateProgress,
-      resetRace
+      resetRace,
+      setRaceState
     }}>
       {children}
     </RaceContext.Provider>

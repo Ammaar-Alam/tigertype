@@ -3,7 +3,7 @@ import { useRace } from '../context/RaceContext';
 import './Typing.css';
 
 function Typing() {
-  const { raceState, typingState, updateProgress } = useRace();
+  const { raceState, typingState, updateProgress, setRaceState } = useRace();
   const [input, setInput] = useState('');
   const inputRef = useRef(null);
   const [elapsedTime, setElapsedTime] = useState(0);
@@ -21,12 +21,12 @@ function Typing() {
     document.head.appendChild(link);
   }, []);
 
-  // Focus input when race starts
+  // Focus input when race starts or in practice mode
   useEffect(() => {
-    if (raceState.inProgress && inputRef.current) {
+    if ((raceState.inProgress || raceState.type === 'practice') && inputRef.current) {
       inputRef.current.focus();
     }
-  }, [raceState.inProgress]);
+  }, [raceState.inProgress, raceState.type]);
 
   const getElapsedTime = () =>
     raceState.startTime ? (Date.now() - raceState.startTime) / 1000 : 0;
@@ -64,6 +64,16 @@ function Typing() {
           return;
         }
       }
+    }
+    
+    // If this is the first keystroke in practice mode and race hasn't started yet,
+    // start the race immediately
+    if (raceState.type === 'practice' && !raceState.inProgress && !raceState.completed && input === '') {
+      setRaceState(prev => ({
+        ...prev,
+        inProgress: true,
+        startTime: Date.now()
+      }));
     }
     
     setInput(newInput);

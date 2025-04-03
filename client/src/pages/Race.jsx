@@ -13,7 +13,9 @@ function Race() {
     raceState, 
     typingState,
     setPlayerReady, 
-    resetRace 
+    resetRace,
+    setRaceState,
+    joinPracticeMode
   } = useRace();
   
   const [countdown, setCountdown] = useState(null);
@@ -45,27 +47,17 @@ function Race() {
     
     socket.on('race:countdown', handleCountdown);
     
-    // For practice mode, manually trigger countdown when game type is practice
-    // Only start countdown if the race is not in progress or completed
-    if (raceState.type === 'practice' && !raceState.inProgress && !raceState.completed && !countdown) {
-      console.log('Setting up practice countdown');
-      setCountdown(3);
+    // For practice mode, skip countdown and set it directly to null
+    // This will allow typing to begin immediately
+    if (raceState.type === 'practice' && !raceState.inProgress && !raceState.completed) {
+      console.log('Practice mode - skipping countdown');
+      setCountdown(null);
       
+      // If there was a countdown in progress, clear it
       if (countdownRef.current) {
         clearInterval(countdownRef.current);
+        countdownRef.current = null;
       }
-      
-      countdownRef.current = setInterval(() => {
-        setCountdown(prev => {
-          console.log('Countdown tick:', prev);
-          if (prev <= 1) {
-            clearInterval(countdownRef.current);
-            countdownRef.current = null;
-            return null;
-          }
-          return prev - 1;
-        });
-      }, 1000);
     }
     
     return () => {
@@ -76,6 +68,71 @@ function Race() {
       }
     };
   }, [socket, raceState.type, raceState.inProgress, raceState.completed]);
+  
+  // Handle keyboard shortcuts
+  useEffect(() => {
+    const handleKeydown = (e) => {
+      // Only apply shortcuts when not typing in an input field
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+        return;
+      }
+      
+      // TAB - Start new race with different excerpt (only in practice mode)
+      if (e.key === 'Tab' && raceState.type === 'practice') {
+        e.preventDefault();
+        
+        // Completely bypass normal flow to create a new practice mode session
+        resetRace();
+        
+        // Join a new practice mode but don't rely on server countdown
+        setTimeout(() => {
+          // Emit practice join
+          socket.emit('practice:join');
+          
+          // Listen for the race:joined event once
+          const handlePracticeJoined = (data) => {
+            console.log('Practice mode joined after Tab key:', data);
+            
+            // Immediately set up the race with the received data
+            setRaceState({
+              ...data,
+              type: 'practice',
+              inProgress: false,
+              completed: false,
+              startTime: null
+            });
+            
+            // Remove the one-time listener
+            socket.off('race:joined', handlePracticeJoined);
+          };
+          
+          // Add the one-time listener for joining
+          socket.once('race:joined', handlePracticeJoined);
+        }, 100);
+      }
+      
+      // ESC - Restart current race with same excerpt (only in practice mode)
+      if (e.key === 'Escape' && raceState.type === 'practice') {
+        e.preventDefault();
+        // Reset typing state but keep the same snippet
+        const currentSnippet = raceState.snippet;
+        resetRace();
+        setRaceState(prev => ({
+          ...prev,
+          type: 'practice',
+          snippet: currentSnippet,
+          inProgress: true,
+          startTime: Date.now()
+        }));
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeydown);
+    
+    return () => {
+      window.removeEventListener('keydown', handleKeydown);
+    };
+  }, [raceState.type, raceState.snippet, resetRace, joinPracticeMode, setRaceState]);
   
   // Clean up on unmount
   useEffect(() => {
@@ -144,6 +201,20 @@ function Race() {
             <Typing />
           ) : (
             <Results />
+          )}
+          
+          {/* Keybinds display for practice mode */}
+          {raceState.type === 'practice' && (
+            <div className="keybinds-container">
+              <div className="keybind">
+                <span className="keybind-key">Tab</span>
+                <span className="keybind-desc">New excerpt</span>
+              </div>
+              <div className="keybind">
+                <span className="keybind-key">Esc</span>
+                <span className="keybind-desc">Restart current excerpt</span>
+              </div>
+            </div>
           )}
         </div>
       </div>
