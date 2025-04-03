@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRace } from '../context/RaceContext';
 import './Typing.css';
 
@@ -8,6 +8,8 @@ function Typing() {
   const inputRef = useRef(null);
   const typingAreaRef = useRef(null);
   const [elapsedTime, setElapsedTime] = useState(0);
+  const [isProcessingFirstChar, setIsProcessingFirstChar] = useState(false);
+  const firstCharStartTimeRef = useRef(null);
 
   // Cursor specific refs and state
   const blinkIntervalRef = useRef(null);
@@ -33,12 +35,25 @@ function Typing() {
     };
   }, []);
 
-  // Focus container effect (keep)
+  // Focus container effect 
   useEffect(() => {
-    if ((raceState.inProgress || raceState.type === 'practice') && typingAreaRef.current) {
-      typingAreaRef.current.focus(); 
+    // Ensure focus immediately in practice mode
+    if (typingAreaRef.current) {
+      // When in practice mode, focus automatically and immediately
+      if (raceState.type === 'practice') {
+        // Use requestAnimationFrame to ensure DOM is ready
+        requestAnimationFrame(() => {
+          typingAreaRef.current.focus();
+        });
+      } 
+      // For standard races, only focus once race starts
+      else if (raceState.inProgress) {
+        typingAreaRef.current.focus();
+      }
     }
-    setInput(''); 
+    
+    // Clear input when snippet changes (new race or reset)
+    setInput('');
   }, [raceState.inProgress, raceState.type, raceState.snippet]);
 
   const getElapsedTime = () =>
@@ -63,28 +78,43 @@ function Typing() {
   // Main input handler (now called manually from keydown listener)
   const processInput = (newInput) => {
     // Special case for the first keystroke in practice mode
-    if (raceState.type === 'practice' && !raceState.inProgress && !raceState.completed && input === '' && newInput.length > 0) {
-      // Start the race immediately AND process this first character
+    if (raceState.type === 'practice' && !raceState.inProgress && !raceState.completed && input === '' && newInput.length === 1) {
+      console.log("Processing FIRST char input:", newInput);
+      const startTime = Date.now();
+      firstCharStartTimeRef.current = startTime;
+      setInput(newInput);
+      setIsProcessingFirstChar(true);
       setRaceState(prev => ({
         ...prev,
         inProgress: true,
-        startTime: Date.now()
+        startTime: startTime
       }));
-      
-      // Now we need to immediately update progress with this first character
-      // instead of waiting for the next useEffect cycle
-      setInput(newInput);
-      updateProgress(newInput);
-      return; // Return early since we've handled the input update
+      return;
     }
-    
     setInput(newInput);
-    
-    // Update progress only if the race has actually started
-    if (raceState.inProgress) {
-      updateProgress(newInput);
-    }
   };
+  
+  // *** MODIFIED: useEffect to reliably call updateProgress ***
+  useEffect(() => {
+    // Special handling immediately after the first character flag is set
+    if (isProcessingFirstChar && raceState.inProgress && input.length === 1 && firstCharStartTimeRef.current) {
+      console.log(`useEffect (First Char) calling updateProgress with input: '${input}' and startTime: ${firstCharStartTimeRef.current}`);
+      // Pass the captured startTime as the third argument (adjust updateProgress signature)
+      updateProgress(input, firstCharStartTimeRef.current);
+      setIsProcessingFirstChar(false); // Reset the flag immediately after processing
+      firstCharStartTimeRef.current = null; // Clear the ref
+    }
+    // Normal handling for subsequent characters
+    else if (raceState.inProgress && !isProcessingFirstChar && input !== '') {
+      console.log(`useEffect (Subsequent) calling updateProgress with input: '${input}'`);
+      // Call normally without overriding startTime
+      updateProgress(input);
+    }
+    // If race just started but input is empty (e.g., race start triggered by server), do nothing yet.
+    // If isProcessingFirstChar is true but conditions aren't met yet, wait for next render.
+
+    // Dependencies now include the flag
+  }, [input, raceState.inProgress, updateProgress, isProcessingFirstChar]);
   
   // Global keyboard listener on the typing area
   useEffect(() => {
@@ -96,19 +126,40 @@ function Typing() {
       
       e.preventDefault();
       let currentInput = input;
+      
+      // Special handling for backspace - ensure we don't jerk the cursor
       if (e.key === 'Backspace') {
-        currentInput = currentInput.slice(0, -1);
-      } else if (e.key.length === 1) { // Handle printable characters
+        if (currentInput.length > 0) {
+          // Remove the last character
+          currentInput = currentInput.slice(0, -1);
+          
+          // For smoother transitions on backspace:
+          // 1. Update input immediately
+          setInput(currentInput);
+          
+          // 2. Then use rAF to schedule the progress update for smoother animation
+          // This creates a slight delay that helps visual smoothness
+          requestAnimationFrame(() => {
+            // Only update progress if we're in a race
+            if (raceState.inProgress) {
+              updateProgress(currentInput);
+            }
+          });
+          return;
+        }
+      } else if (e.key.length === 1) { 
+        // For new characters, add immediately for responsive feel
         currentInput += e.key;
+        processInput(currentInput);
+        return;
       }
       
-      // Process the potentially updated input
+      // Process any other keys that might fall through
       processInput(currentInput);
     };
 
     const area = typingAreaRef.current;
     if (area) {
-      // Use keydown for better handling of backspace etc.
       area.addEventListener('keydown', handleContainerKeyDown);
     }
 
@@ -117,7 +168,6 @@ function Typing() {
         area.removeEventListener('keydown', handleContainerKeyDown);
       }
     };
-    // Rerun if the input state changes to correctly capture the current value
   }, [input, raceState.type, raceState.inProgress, raceState.completed, setRaceState, updateProgress]);
   
   // Prevent paste - might need to be on the container now?
@@ -232,56 +282,63 @@ function Typing() {
     const textLength = raceState.snippet.text.length;
 
     // --- Update Cursor Position --- 
-    if (currentCursorSpanRef.current) {
-      currentCursorSpanRef.current.classList.remove('current');
-      // Clear any inline styles that might have been set
-      currentCursorSpanRef.current.removeAttribute('style');
-    }
-
-    // Target the correct span based on input position
-    let targetSpan;
-    if (currentIndex <= textLength) {
-      targetSpan = spans[currentIndex];
-    }
-
-    // If we have a valid span to highlight as current
-    if (targetSpan) {
-      // Add the cursor class
-      targetSpan.classList.add('current');
-      targetSpan.classList.add('next-to-type'); // Additional class for highlighting next char
-      currentCursorSpanRef.current = targetSpan;
-
-      // --- Ensure Visible (Scrolling) --- 
-      const containerRect = snippetDisplay.getBoundingClientRect();
-      const cursorRect = targetSpan.getBoundingClientRect();
-      
-      // Calculate if we need to scroll
-      let targetScrollTop = snippetDisplay.scrollTop;
-      let shouldScroll = false;
-
-      if (cursorRect.bottom > containerRect.bottom - SCROLL_MARGIN) {
-        // Need to scroll down
-        targetScrollTop = snippetDisplay.scrollTop + 
-          (cursorRect.bottom - containerRect.bottom) + SCROLL_MARGIN;
-        shouldScroll = true;
-      } else if (cursorRect.top < containerRect.top + SCROLL_MARGIN) {
-        // Need to scroll up
-        targetScrollTop = snippetDisplay.scrollTop + 
-          (cursorRect.top - containerRect.top) - SCROLL_MARGIN;
-        shouldScroll = true;
+    // Use requestAnimationFrame for smoother transitions
+    requestAnimationFrame(() => {
+      // Remove current class from previous cursor position
+      if (currentCursorSpanRef.current) {
+        currentCursorSpanRef.current.classList.remove('current');
+        currentCursorSpanRef.current.classList.remove('next-to-type');
+        // Clear any inline styles that might have been set
+        currentCursorSpanRef.current.removeAttribute('style');
       }
 
-      // Apply scroll if needed - use smoother animation
-      if (shouldScroll) {
-        snippetDisplay.scrollTo({
-          top: targetScrollTop,
-          behavior: 'smooth'
-        });
+      // Target the correct span based on input position
+      let targetSpan;
+      if (currentIndex <= textLength) {
+        targetSpan = spans[currentIndex];
       }
-    } else {
-      currentCursorSpanRef.current = null;
-    }
-  // Depend on input to recalculate position
+
+      // If we have a valid span to highlight as current
+      if (targetSpan) {
+        // Add the cursor class
+        targetSpan.classList.add('current');
+        targetSpan.classList.add('next-to-type'); // Additional class for highlighting next char
+        currentCursorSpanRef.current = targetSpan;
+
+        // --- Ensure Visible (Scrolling) --- 
+        const containerRect = snippetDisplay.getBoundingClientRect();
+        const cursorRect = targetSpan.getBoundingClientRect();
+        
+        // Calculate if we need to scroll
+        let targetScrollTop = snippetDisplay.scrollTop;
+        let shouldScroll = false;
+
+        if (cursorRect.bottom > containerRect.bottom - SCROLL_MARGIN) {
+          // Need to scroll down
+          targetScrollTop = snippetDisplay.scrollTop + 
+            (cursorRect.bottom - containerRect.bottom) + SCROLL_MARGIN;
+          shouldScroll = true;
+        } else if (cursorRect.top < containerRect.top + SCROLL_MARGIN) {
+          // Need to scroll up
+          targetScrollTop = snippetDisplay.scrollTop + 
+            (cursorRect.top - containerRect.top) - SCROLL_MARGIN;
+          shouldScroll = true;
+        }
+
+        // Apply scroll if needed - use smoother animation
+        if (shouldScroll) {
+          // Use another rAF to ensure scrolling happens after the class change
+          requestAnimationFrame(() => {
+            snippetDisplay.scrollTo({
+              top: targetScrollTop,
+              behavior: 'smooth'
+            });
+          });
+        }
+      } else {
+        currentCursorSpanRef.current = null;
+      }
+    });
   }, [input, raceState.snippet, typingState.completed]);
   
   // Generate highlighted text - simplified to let CSS handle styling
@@ -294,21 +351,39 @@ function Typing() {
     for (let i = 0; i < text.length; i++) {
       // Only consider correctness for typed characters
       if (i < input.length) {
+        const isCorrect = input[i] === text[i];
         components.push(
-          <span key={i} className={input[i] === text[i] ? 'correct' : 'incorrect'}>
+          <span 
+            key={i} 
+            className={isCorrect ? 'correct' : 'incorrect'}
+            style={{transition: 'all 0.2s cubic-bezier(0.25, 0.1, 0.25, 1)'}}
+          >
             {text[i]}
           </span>
         );
       } else {
-        // Untyped characters don't have any special class
-        // The cursor effect will add 'current' class via DOM in the cursor position useEffect
-        components.push(<span key={i}>{text[i]}</span>);
+        // Untyped characters - use a stable key
+        components.push(
+          <span 
+            key={i}
+            style={{transition: 'all 0.2s cubic-bezier(0.25, 0.1, 0.25, 1)'}}
+          >
+            {text[i]}
+          </span>
+        );
       }
     }
     
-    // Add a space at the end for cursor to position after last character when typing is complete
+    // Add a space at the end for cursor to position after last character
     if (text.length > 0) {
-      components.push(<span key={text.length}>&nbsp;</span>);
+      components.push(
+        <span 
+          key={text.length}
+          style={{transition: 'all 0.2s cubic-bezier(0.25, 0.1, 0.25, 1)'}}
+        >
+          &nbsp;
+        </span>
+      );
     }
     
     return components;

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useSocket } from './SocketContext';
 import { useAuth } from './AuthContext';
 
@@ -160,34 +160,41 @@ export const RaceProvider = ({ children }) => {
   }, [socket, connected]);
 
   // Methods for race actions
-  const joinPracticeMode = () => {
+  const joinPracticeMode = useCallback(() => {
     if (!socket || !connected) return;
     console.log('Emitting practice:join...');
     socket.emit('practice:join');
-  };
+  }, [socket, connected]);
 
-  const joinPublicRace = () => {
+  const joinPublicRace = useCallback(() => {
     if (!socket || !connected) return;
     console.log('Joining public race...');
     socket.emit('public:join');
-  };
+  }, [socket, connected]);
 
-  const setPlayerReady = () => {
+  const setPlayerReady = useCallback(() => {
     if (!socket || !connected) return;
     console.log('Setting player ready...');
     socket.emit('player:ready');
-  };
+  }, [socket, connected]);
 
-  const updateProgress = (input) => {
+  const updateProgress = useCallback((input, startTimeOverride = null) => {
+    // Determine the start time to use: override if provided, otherwise use state
+    const effectiveStartTime = startTimeOverride !== null ? startTimeOverride : raceState.startTime;
+
+    // Ensure we have a valid start time before proceeding
+    if (!effectiveStartTime) {
+      console.warn('updateProgress called without a valid startTime.');
+      return;
+    }
     const now = Date.now();
-    const elapsedSeconds = (now - raceState.startTime) / 1000;
+    // Use effectiveStartTime for calculation
+    const elapsedSeconds = Math.max(0.001, (now - effectiveStartTime) / 1000);
     
-    // Calculate current position in the snippet
     const text = raceState.snippet?.text || '';
     let correctChars = 0;
     let errors = 0;
     
-    // Count correct characters and errors
     for (let i = 0; i < input.length; i++) {
       if (i < text.length) {
         if (input[i] === text[i]) {
@@ -198,65 +205,66 @@ export const RaceProvider = ({ children }) => {
       }
     }
     
-    // Calculate WPM and accuracy
-    const words = correctChars / 5; // standard definition: 1 word = 5 chars
+    const words = correctChars / 5;
     const wpm = (words / elapsedSeconds) * 60;
-    // Calculate accuracy based on total input length, not just correct characters
     const accuracy = input.length > 0 ? (correctChars / input.length) * 100 : 0;
+    const isCompleted = input.length >= text.length;
     
-    // Update the typing state
     setTypingState({
       input,
-      position: input.length, // Use actual input length instead of correct chars
+      position: input.length,
       correctChars,
       errors,
-      completed: input.length >= text.length, // Consider race complete when input length matches or exceeds text length
+      completed: isCompleted,
       wpm,
       accuracy
     });
     
-    // If the race is still in progress, update progress
-    if (raceState.inProgress && !raceState.completed) {
-      // Emit progress to the server
-      if (socket && connected) {
-        socket.emit('race:progress', {
-          code: raceState.code,
-          position: input.length,
-          total: text.length
-        });
-      }
+    // Send progress to server
+    if (socket && connected && raceState.inProgress && !raceState.completed) {
+      socket.emit('race:progress', {
+        code: raceState.code,
+        position: input.length,
+        total: text.length
+      });
+    }
       
-      // Check if race is completed (input length matches or exceeds text length)
-      if (input.length >= text.length) {
-        // Mark as completed locally
-        setRaceState(prev => ({
-          ...prev,
-          completed: true,
-          // For practice mode, store results directly in state
-          results: prev.type === 'practice' ? [{
+    // Handle completion
+    if (isCompleted) {
+      // Use functional update for setRaceState to ensure we have latest state
+      setRaceState(prev => {
+        // Only update if not already completed in prev state
+        if (prev.completed) return prev;
+        
+        const finalResults = prev.type === 'practice' ? [{
             netid: user?.netid,
             wpm,
             accuracy,
             completion_time: elapsedSeconds
-          }] : prev.results
-        }));
+        }] : prev.results;
         
         // Send completion to server only for multiplayer races
-        if (socket && connected && raceState.type !== 'practice') {
+        if (socket && connected && prev.type !== 'practice') {
           socket.emit('race:result', {
-            code: raceState.code,
-            lobbyId: raceState.lobbyId,
-            snippetId: raceState.snippet?.id,
+            code: prev.code,
+            lobbyId: prev.lobbyId,
+            snippetId: prev.snippet?.id,
             wpm,
             accuracy,
             completion_time: elapsedSeconds
           });
         }
-      }
+        
+        return {
+           ...prev,
+           completed: true,
+           results: finalResults
+        };
+      });
     }
-  };
+  }, [socket, connected, user, raceState.startTime, raceState.snippet, raceState.code, raceState.lobbyId, raceState.inProgress, raceState.completed, raceState.type, setRaceState, setTypingState]);
 
-  const resetRace = () => {
+  const resetRace = useCallback(() => {
     setRaceState({
       code: null,
       type: null,
@@ -277,18 +285,21 @@ export const RaceProvider = ({ children }) => {
       wpm: 0,
       accuracy: 0
     });
-  };
+  // No external dependencies, but include setters just in case
+  }, [setRaceState, setTypingState]); 
 
   return (
     <RaceContext.Provider value={{ 
       raceState, 
       typingState,
+      // Provide the memoized functions
       joinPracticeMode,
       joinPublicRace,
       setPlayerReady,
-      updateProgress,
+      updateProgress, 
       resetRace,
-      setRaceState
+      // setRaceState is stable by default, no need for useCallback
+      setRaceState 
     }}>
       {children}
     </RaceContext.Provider>

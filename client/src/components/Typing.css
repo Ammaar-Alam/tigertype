@@ -52,7 +52,7 @@
   
   .snippet-display {
     font-family: 'Fira Code', monospace;
-    font-size: 1.4rem;
+    font-size: 1.25rem;
     line-height: 1.8;
     margin-bottom: 1.5rem;
     white-space: pre-wrap;
@@ -68,6 +68,7 @@
     scrollbar-color: #555 #1e1e1e;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
     transition: transform 0.3s ease, box-shadow 0.3s ease;
+    letter-spacing: normal;
   }
   
   .snippet-display:focus-within {
@@ -92,12 +93,37 @@
   .snippet-display span {
     display: inline-block;
     min-width: 0.1em;
-    transition: all 0.15s ease-in-out;
-    will-change: background-color, color, border-color;
-    padding: 1px 2px;
+    transition: all 0.2s cubic-bezier(0.25, 0.1, 0.25, 1);
+    will-change: background-color, color, border-color, text-shadow;
+    padding: 0px 1px;
     border-radius: 2px;
     position: relative;
-    margin: 0 0.5px;
+    margin: 0;
+    color: #e0e0e0;
+  }
+  
+  /* Increase specificity and ensure correct color */
+  .snippet-display span.correct {
+    color: #4caf50 !important; /* Use important to override other styles if necessary */
+    text-shadow: 0 0 3px rgba(76, 175, 80, 0.5);
+    background-color: transparent; /* Ensure no background color clashes */
+  }
+  
+  /* Ensure incorrect doesn't override correct if styles somehow overlap */
+  .snippet-display span.incorrect {
+    color: #ff4f4f !important;
+    background-color: rgba(255, 79, 79, 0.2);
+    text-decoration: underline;
+    text-decoration-color: #ff4f4f;
+    text-decoration-thickness: 2px;
+    text-underline-offset: 4px;
+    border-radius: 3px;
+  }
+  
+  /* Ensure current doesn't completely hide correct color */
+  .snippet-display span.current.correct {
+    /* Keep the cursor background but allow correct color to show */
+    color: #4caf50 !important;
   }
   
   .correct {
@@ -121,18 +147,21 @@
     color: white;
     margin-right: 1px;
     box-sizing: border-box;
-    animation: cursorPulse 1.5s infinite;
     z-index: 5;
+    animation: cursorPulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    transform-origin: center;
   }
   
   @keyframes cursorPulse {
     0%, 100% { 
       background-color: rgba(245, 128, 37, 0.25); 
       box-shadow: 0 0 0 2px rgba(245, 128, 37, 0.3);
+      transform: scale(1);
     }
     50% { 
       background-color: rgba(245, 128, 37, 0.15); 
       box-shadow: 0 0 0 3px rgba(245, 128, 37, 0.2);
+      transform: scale(1.02);
     }
   }
   
@@ -146,8 +175,9 @@
     border-radius: 5px;
     border: 2px solid #F58025;
     opacity: 0.6;
-    animation: pulseBorder 1.5s infinite;
+    animation: pulseBorder 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
     pointer-events: none;
+    transform-origin: center;
   }
   
   @keyframes pulseBorder {
@@ -156,7 +186,7 @@
       opacity: 0.6;
     }
     50% { 
-      transform: scale(1.1);
+      transform: scale(1.05);
       opacity: 0.3;
     }
   }
@@ -169,7 +199,7 @@
     bottom: 0;
     width: 3px;
     background-color: #F58025;
-    animation: blinkBorder 0.8s infinite;
+    animation: blinkBorder 1s cubic-bezier(0.4, 0, 0.6, 1) infinite;
     opacity: var(--cursor-opacity, 1);
   }
   
