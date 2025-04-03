@@ -18,6 +18,11 @@ const playerProgress = new Map();
 const PROGRESS_THROTTLE = 100; // ms
 const lastProgressUpdate = new Map();
 
+// Simple lobby code generator (replace with more robust if needed)
+const generateLobbyCode = () => {
+  return Math.random().toString(36).substring(2, 8).toUpperCase();
+};
+
 // Initialize socket handlers with IO instance
 const initialize = (io) => {
   io.on('connection', (socket) => {
@@ -106,49 +111,54 @@ const initialize = (io) => {
         
         console.log(`Loaded snippet ID ${snippet.id} for practice mode`);
         
-        // Create a practice lobby
-        const lobby = await RaceModel.create('practice', snippet.id);
-        console.log(`Created practice lobby with code ${lobby.code}`);
+        // *** DO NOT CREATE A DATABASE LOBBY FOR PRACTICE MODE ***
+        // Use an in-memory representation only
+        const practiceLobbyCode = generateLobbyCode(); // Assume this function exists
+        const practiceLobbyId = Date.now(); // Use timestamp as a temporary unique ID
+        console.log(`Generated in-memory practice lobby code ${practiceLobbyCode}`);
         
         // Join the socket room
-        socket.join(lobby.code);
+        socket.join(practiceLobbyCode);
         
-        // Add player to race
-        racePlayers.set(lobby.code, [{
+        // Add player to in-memory race tracking
+        racePlayers.set(practiceLobbyCode, [{
           id: socket.id,
           netid,
           userId,
-          ready: true,
-          lobbyId: lobby.id,
+          ready: true, // Player is always ready in practice
+          lobbyId: practiceLobbyId, // Use temporary ID
           snippetId: snippet.id
         }]);
         
-        // Active race info
-        activeRaces.set(lobby.code, {
-          id: lobby.id,
-          code: lobby.code,
+        // In-memory active race info
+        activeRaces.set(practiceLobbyCode, {
+          id: practiceLobbyId, // Use temporary ID
+          code: practiceLobbyCode,
           snippet: {
             id: snippet.id,
             text: snippet.text
           },
-          status: 'waiting',
+          status: 'waiting', // Race starts when user types
           type: 'practice',
           startTime: null
         });
         
         // Send race info to player
         socket.emit('race:joined', {
-          code: lobby.code,
+          code: practiceLobbyCode,
           type: 'practice',
-          lobbyId: lobby.id,
+          lobbyId: practiceLobbyId, // Send temporary ID
           snippet: {
             id: snippet.id,
             text: snippet.text
-          }
+          },
+          // Include player info for consistency, even though it's just one player
+          players: [{ netid, ready: true }] 
         });
         
-        // Start practice countdown immediately for practice mode
-        startPracticeCountdown(io, lobby.code);
+        // *** DO NOT START COUNTDOWN FOR PRACTICE MODE ***
+        // startPracticeCountdown(io, lobby.code); // Removed this line
+        
       } catch (err) {
         console.error('Error joining practice:', err);
         socket.emit('error', { message: 'Failed to join practice mode' });

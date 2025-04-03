@@ -38,15 +38,42 @@ export const RaceProvider = ({ children }) => {
 
     // Event handlers
     const handleRaceJoined = (data) => {
-      console.log('Joined race:', data);
-      setRaceState(prev => ({
-        ...prev,
-        code: data.code,
-        type: data.type,
-        lobbyId: data.lobbyId,
-        snippet: data.snippet,
-        players: data.players || []
-      }));
+      console.log('Handling race:joined:', data);
+      if (data.type === 'practice') {
+        console.log('Setting up practice state specifically');
+        // For practice mode, ensure inProgress, startTime, etc., are reset
+        setRaceState({
+          code: data.code,
+          type: 'practice',
+          lobbyId: data.lobbyId,
+          snippet: data.snippet,
+          players: data.players || [],
+          startTime: null,
+          inProgress: false, 
+          completed: false,
+          results: []
+        });
+        // Also reset local typing state upon joining new practice
+        setTypingState({
+          input: '',
+          position: 0,
+          correctChars: 0,
+          errors: 0,
+          completed: false,
+          wpm: 0,
+          accuracy: 0
+        });
+      } else {
+        // For non-practice races, set state normally
+        setRaceState(prev => ({
+          ...prev,
+          code: data.code,
+          type: data.type,
+          lobbyId: data.lobbyId,
+          snippet: data.snippet,
+          players: data.players || []
+        }));
+      }
     };
 
     const handlePlayersUpdate = (data) => {
@@ -135,7 +162,7 @@ export const RaceProvider = ({ children }) => {
   // Methods for race actions
   const joinPracticeMode = () => {
     if (!socket || !connected) return;
-    console.log('Joining practice mode...');
+    console.log('Emitting practice:join...');
     socket.emit('practice:join');
   };
 

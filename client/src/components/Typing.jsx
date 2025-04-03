@@ -6,6 +6,7 @@ function Typing() {
   const { raceState, typingState, updateProgress, setRaceState } = useRace();
   const [input, setInput] = useState('');
   const inputRef = useRef(null);
+  const typingAreaRef = useRef(null);
   const [elapsedTime, setElapsedTime] = useState(0);
 
   // Gets latest typingState.position
@@ -21,12 +22,15 @@ function Typing() {
     document.head.appendChild(link);
   }, []);
 
-  // Focus input when race starts or in practice mode
+  // Focus the typing area container when race starts or in practice mode
   useEffect(() => {
-    if ((raceState.inProgress || raceState.type === 'practice') && inputRef.current) {
-      inputRef.current.focus();
+    if ((raceState.inProgress || raceState.type === 'practice') && typingAreaRef.current) {
+      // We focus the container now, which needs to be focusable (tabIndex="0")
+      typingAreaRef.current.focus(); 
     }
-  }, [raceState.inProgress, raceState.type]);
+    // Clear input when snippet changes (e.g., new race via TAB)
+    setInput(''); 
+  }, [raceState.inProgress, raceState.type, raceState.snippet]);
 
   const getElapsedTime = () =>
     raceState.startTime ? (Date.now() - raceState.startTime) / 1000 : 0;
@@ -47,28 +51,11 @@ function Typing() {
     };
   }, [raceState.inProgress, raceState.startTime]);
   
-  // Handle typing input
-  const handleInput = (e) => {
-    const newInput = e.target.value;
-    
-    // For multiplayer races, require 100% accuracy
-    if (raceState.type !== 'practice' && raceState.inProgress) {
-      const text = raceState.snippet.text;
-      // Only allow input if it matches the text exactly up to the current position
-      if (newInput.length > input.length) {
-        // Check if the new character matches
-        const newChar = newInput[newInput.length - 1];
-        const expectedChar = text[newInput.length - 1];
-        if (newChar !== expectedChar) {
-          // If it doesn't match, don't update the input
-          return;
-        }
-      }
-    }
-    
+  // Main input handler (now called manually from keydown listener)
+  const processInput = (newInput) => {
     // If this is the first keystroke in practice mode and race hasn't started yet,
     // start the race immediately
-    if (raceState.type === 'practice' && !raceState.inProgress && !raceState.completed && input === '') {
+    if (raceState.type === 'practice' && !raceState.inProgress && !raceState.completed && input === '' && newInput.length > 0) {
       setRaceState(prev => ({
         ...prev,
         inProgress: true,
@@ -78,16 +65,64 @@ function Typing() {
     
     setInput(newInput);
     
-    if (raceState.inProgress) {
+    // Update progress only if the race has actually started
+    // Need to check raceState.inProgress directly *after* potential update above
+    // Use a temporary variable or check the potentially updated state
+    const isCurrentlyInProgress = (raceState.type === 'practice' && input === '' && newInput.length > 0) || raceState.inProgress;
+    if (isCurrentlyInProgress) {
       updateProgress(newInput);
     }
   };
   
-  // Prevent paste
-  const handlePaste = (e) => {
-    e.preventDefault();
-    return false;
-  };
+  // Global keyboard listener on the typing area
+  useEffect(() => {
+    const handleContainerKeyDown = (e) => {
+      // Prevent default browser actions for keys we handle
+      e.preventDefault();
+
+      let currentInput = input;
+      if (e.key === 'Backspace') {
+        currentInput = currentInput.slice(0, -1);
+      } else if (e.key.length === 1) { // Handle printable characters
+        // Simple check, might need refinement for special keys/modifiers
+        currentInput += e.key;
+      }
+      
+      // Process the potentially updated input
+      processInput(currentInput);
+    };
+
+    const area = typingAreaRef.current;
+    if (area) {
+      // Use keydown for better handling of backspace etc.
+      area.addEventListener('keydown', handleContainerKeyDown);
+    }
+
+    return () => {
+      if (area) {
+        area.removeEventListener('keydown', handleContainerKeyDown);
+      }
+    };
+    // Rerun if the input state changes to correctly capture the current value
+  }, [input, raceState.type, raceState.inProgress, raceState.completed, setRaceState, updateProgress]);
+  
+  // Prevent paste - might need to be on the container now?
+  // Let's attach it to the container as well
+  useEffect(() => {
+    const handleContainerPaste = (e) => {
+      e.preventDefault();
+      return false;
+    };
+    const area = typingAreaRef.current;
+    if (area) {
+      area.addEventListener('paste', handleContainerPaste);
+    }
+    return () => {
+      if (area) {
+        area.removeEventListener('paste', handleContainerPaste);
+      }
+    };
+  }, []);
   
   // Generate highlighted text
   const getHighlightedText = () => {
@@ -154,25 +189,28 @@ function Typing() {
   };
   
   return (
-    <div className="typing-area">
+    <div 
+      className="typing-area" 
+      ref={typingAreaRef} 
+      tabIndex="0" 
+    >
       {raceState.inProgress && getStats()}
       
       <div className="snippet-display" >
         {getHighlightedText()}
       </div>
       
-      <div className="typing-input-container">
+      <div className="typing-input-container hidden-input-container">
         <input
           ref={inputRef}
           type="text"
           value={input}
-          onChange={handleInput}
-          onPaste={handlePaste}
-          disabled={!raceState.inProgress || typingState.completed}
+          readOnly
           autoComplete="off"
           autoCorrect="off"
           autoCapitalize="off"
           spellCheck="false"
+          style={{ opacity: 0, position: 'absolute', top: '-9999px', left: '-9999px' }}
         />
       </div>
       

@@ -27,6 +27,16 @@ function Race() {
     
     const handleCountdown = (data) => {
       console.log('Countdown received:', data);
+      if (raceState.type === 'practice') {
+        console.log('Ignoring countdown because current type is practice.');
+        setCountdown(null);
+        if (countdownRef.current) {
+          clearInterval(countdownRef.current);
+          countdownRef.current = null;
+        }
+        return;
+      }
+      
       setCountdown(data.seconds);
       
       if (countdownRef.current) {
@@ -69,70 +79,66 @@ function Race() {
     };
   }, [socket, raceState.type, raceState.inProgress, raceState.completed]);
   
-  // Handle keyboard shortcuts
+  // Handle keyboard shortcuts more reliably
   useEffect(() => {
-    const handleKeydown = (e) => {
-      // Only apply shortcuts when not typing in an input field
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
-        return;
+    const handleKeydownCapture = (e) => {
+      // Check if the race page is active and it's practice mode
+      if (raceState.type !== 'practice') return;
+
+      // TAB - Always intercept for practice mode
+      if (e.key === 'Tab') {
+        e.preventDefault(); // Prevent default focus change
+        console.log('TAB pressed (Capture): Resetting and joining new practice mode');
+        // Ensure socket exists before calling context functions
+        if (socket && joinPracticeMode) {
+          resetRace();
+          joinPracticeMode();
+        } else {
+          console.warn('Socket or joinPracticeMode not ready for TAB action');
+        }
       }
-      
-      // TAB - Start new race with different excerpt (only in practice mode)
-      if (e.key === 'Tab' && raceState.type === 'practice') {
-        e.preventDefault();
+      // ESC - Intercept only if input is not focused, or handle globally?
+      // Let's handle ESC globally in practice mode for simplicity
+      else if (e.key === 'Escape') {
+        e.preventDefault(); // Prevent potential browser default actions
+        console.log('ESC pressed (Capture): Resetting for current snippet restart');
         
-        // Completely bypass normal flow to create a new practice mode session
-        resetRace();
-        
-        // Join a new practice mode but don't rely on server countdown
-        setTimeout(() => {
-          // Emit practice join
-          socket.emit('practice:join');
+        // Ensure socket exists before calling context functions
+        if (socket && resetRace && setRaceState && raceState.snippet) {
+          const currentSnippet = raceState.snippet;
+          resetRace(); 
+          setRaceState(prev => ({
+            ...prev, 
+            type: 'practice',
+            snippet: currentSnippet,
+          }));
+  
+          setCountdown(null);
+          if (countdownRef.current) {
+            clearInterval(countdownRef.current);
+            countdownRef.current = null;
+          }
           
-          // Listen for the race:joined event once
-          const handlePracticeJoined = (data) => {
-            console.log('Practice mode joined after Tab key:', data);
-            
-            // Immediately set up the race with the received data
-            setRaceState({
-              ...data,
-              type: 'practice',
-              inProgress: false,
-              completed: false,
-              startTime: null
-            });
-            
-            // Remove the one-time listener
-            socket.off('race:joined', handlePracticeJoined);
-          };
-          
-          // Add the one-time listener for joining
-          socket.once('race:joined', handlePracticeJoined);
-        }, 100);
-      }
-      
-      // ESC - Restart current race with same excerpt (only in practice mode)
-      if (e.key === 'Escape' && raceState.type === 'practice') {
-        e.preventDefault();
-        // Reset typing state but keep the same snippet
-        const currentSnippet = raceState.snippet;
-        resetRace();
-        setRaceState(prev => ({
-          ...prev,
-          type: 'practice',
-          snippet: currentSnippet,
-          inProgress: true,
-          startTime: Date.now()
-        }));
+          const inputElement = document.querySelector('.typing-area input');
+          if (inputElement) {
+            inputElement.value = ''; 
+            inputElement.focus();
+          }
+        } else {
+           console.warn('Socket or context functions not ready for ESC action');
+        }
       }
     };
-    
-    window.addEventListener('keydown', handleKeydown);
-    
+
+    // Add listener in capture phase to intercept TAB/ESC early
+    window.addEventListener('keydown', handleKeydownCapture, true); 
+
     return () => {
-      window.removeEventListener('keydown', handleKeydown);
+      // Remove the capture phase listener
+      window.removeEventListener('keydown', handleKeydownCapture, true);
     };
-  }, [raceState.type, raceState.snippet, resetRace, joinPracticeMode, setRaceState]);
+    // Add socket and necessary functions to dependency array
+  }, [raceState.type, raceState.snippet, resetRace, joinPracticeMode, setRaceState, socket, setCountdown]);
   
   // Clean up on unmount
   useEffect(() => {

@@ -62,14 +62,6 @@ const initDB = async () => {
       ) WITH (OIDS=FALSE);
     `);
 
-    // Add primary key constraint to user_sessions table
-    await pool.query(`
-      ALTER TABLE "user_sessions" 
-      ADD CONSTRAINT "user_sessions_pkey" 
-      PRIMARY KEY ("sid") 
-      NOT DEFERRABLE INITIALLY IMMEDIATE;
-    `);
-
     console.log('Database tables initialized successfully');
   } catch (err) {
     console.error('Error initializing database tables:', err);
