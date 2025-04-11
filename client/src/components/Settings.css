@@ -58,6 +58,10 @@
   color: var(--mode-text-color);
 }
 
+.font-select {
+  background-color: grey
+}
+
 .settings-modal {
   background-color: var(--secondary-color);
   border-radius: 8px;
