@@ -143,6 +143,22 @@ END $$;
 -- WHERE r.lobby_id = 123
 -- ORDER BY r.wpm DESC;
 
+-- Timed Leaderboard table for tracking performance in timed tests
+CREATE TABLE IF NOT EXISTS timed_leaderboard (
+  id SERIAL PRIMARY KEY,
+  user_id INT REFERENCES users(id) ON DELETE CASCADE,
+  duration INT NOT NULL CHECK (duration IN (15, 30, 60, 120)), -- Timed test duration in seconds
+  wpm DECIMAL(6, 2) NOT NULL,
+  accuracy DECIMAL(5, 2) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Indexes for timed leaderboard performance
+CREATE INDEX IF NOT EXISTS idx_timed_leaderboard_user_id ON timed_leaderboard(user_id);
+CREATE INDEX IF NOT EXISTS idx_timed_leaderboard_duration ON timed_leaderboard(duration);
+CREATE INDEX IF NOT EXISTS idx_timed_leaderboard_wpm ON timed_leaderboard(wpm DESC);
+CREATE INDEX IF NOT EXISTS idx_timed_leaderboard_created_at ON timed_leaderboard(created_at DESC);
+
 -- Recalculate user statistics
 -- UPDATE users u
 -- SET 
@@ -156,7 +172,7 @@ END $$;
 --     AVG(accuracy) as avg_accuracy,
 --     COUNT(*) as race_count
 --   FROM race_results
---   WHERE user_id = 1
+--   WHERE user_id = 1 -- Replace 1 with the actual user_id
 --   GROUP BY user_id
 -- ) as subquery
 -- WHERE u.id = subquery.user_id;

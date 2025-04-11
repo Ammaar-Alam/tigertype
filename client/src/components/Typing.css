@@ -1,9 +1,8 @@
 .typing-area {
   position: relative;
   inset: 0px;
-  min-height: 12rem;
+  min-height: 5rem;
   flex-direction: column;
-  margin-bottom: 1.5rem;
 }
 
 .stats-container {
@@ -108,7 +107,6 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  max-width: 80px;
 }
 
 .tool-tip {
@@ -134,21 +132,33 @@
 
 .snippet-display {
   background-color: var(--type-container-color);
-  padding: 2rem;
+  padding: 1rem;
   border-radius: 8px;
-  font-size: 1.2rem;
+  font-size: 1.5rem;
   line-height: 1.8;
   white-space: pre-wrap;
   position: relative;
-  min-height: 150px;
-  letter-spacing: 0.5px;
+  min-height: 10vh;
+  max-height: 50vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  letter-spacing: 1px;
   border-left: 4px solid #F58025;
   margin-bottom: 1rem;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
   border: 1px solid rgba(245, 128, 37, 0.1);
   color: rgba(255, 255, 255, 0.325);
   text-align: justify;
-  font-family: var(--main-font);
+  scroll-behavior: smooth;
+  /* Hide scrollbar for Firefox */
+  scrollbar-width: none;
+  /* Hide scrollbar for IE and Edge */
+  -ms-overflow-style: none;
+}
+
+/* Hide scrollbar for Chrome, Safari and Opera */
+.snippet-display::-webkit-scrollbar {
+  display: none;
 }
 
 .snippet-display span {
@@ -158,6 +168,7 @@
 .typing-input-container {
   position: fixed;
   inset: 0px;
+  z-index: -1000;
 }
 
 .typing-input-container input {
@@ -205,24 +216,24 @@
 }
 
 .incorrect {
-  color: rgba(255, 65, 47, 0.55);
-  background-color: rgba(255,116,108, 0.10);
+  color: var(--incorrect-color)!important;
+  background-color: var(--incorrect-bg-color)!important;
   text-decoration: underline wavy rgba(255, 65, 47, 0.55);
 }
 
 .shake-animation {
-  animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both;
+  animation: shake 0.4s cubic-bezier(.36,.07,.19,.97) both;
 }
 
 @keyframes shake {
   0%, 100% { transform: translateX(0); }
-  10%, 30%, 50%, 70%, 90% { transform: translateX(-2px); }
-  20%, 40%, 60%, 80% { transform: translateX(2px); }
+  10%, 30%, 50%, 70%, 90% { transform: translateX(-1px); }
+  20%, 40%, 60%, 80% { transform: translateX(1px); }
 }
 
 .error-message {
   position: absolute;
-  top: -3vh;
+  top: -1vh;
   left: 50%;
   transform: translateX(-50%);
   background-color: rgba(255, 65, 47, 0.8);
@@ -233,7 +244,7 @@
   font-weight: bold;
   pointer-events: none;
   animation: fadeInOut 2s forwards;
-  z-index: 10;
+  z-index: 100;
   box-shadow: 0 2px 10px rgba(255, 65, 47, 0.5);
 }
 
@@ -245,12 +256,28 @@
 }
 
 .current {
-  background-color: #3a506b;
+  position: relative;
+  background-color: var(--default-cursor);
   border-radius: 2px;
-  color: white !important;
+  color: var(--current-color)!important;
   animation: blink 1s infinite;
 }
-  
+
+.current::before {
+  visibility: var(--line-cursor);
+  position: fixed;
+  content: "|";
+  transform: scale(1.8, 1);
+  color: var(--princeton-orange);
+  right: 0.4rem;
+  animation: slide 0.05s ease-out;
+}
+
+@keyframes slide {
+  from { right: 0.7rem; }
+  to   { right: 0.4rem; }
+}
+
 @keyframes blink {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.7; }
@@ -302,12 +329,12 @@
     font-size: 1rem;
     padding: 1.5rem;
   }
-  
+
   .typing-input-container input {
     font-size: 1rem;
     padding: 0.8rem;
   }
-  
+
   .stats {
     padding: 0.6rem 1rem;
     gap: 1.5rem;
@@ -319,4 +346,33 @@
   0% { transform: scale(1); opacity: 1; }
   50% { transform: scale(1.1); opacity: 0.5; }
   100% { transform: scale(1); opacity: 1; }
+}
+
+.test-mode-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 4px 10px;
+  border-radius: 15px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  margin-bottom: 8px;
+  width: fit-content;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.test-mode-indicator.timed-mode {
+  background-color: var(--primary-color-transparent, rgba(255, 153, 0, 0.1));
+  color: var(--primary-color, #ff9900);
+  border: 1px solid var(--primary-color-light, rgba(255, 153, 0, 0.3));
+}
+
+.test-mode-indicator .mode-label {
+  display: inline-block;
+}
+
+.test-mode-indicator .mode-duration {
+  font-weight: 600;
 }

@@ -5,7 +5,9 @@
 const SnippetModel = require('../models/snippet');
 const RaceModel = require('../models/race');
 const UserModel = require('../models/user');
+const { insertTimedResult, getTimedLeaderboard } = require('../db');
 const analytics = require('../utils/analytics');
+const { createTimedTestSnippet, generateTimedText } = require('../utils/timed-test');
 
 // Store active races in memory
 const activeRaces = new Map();
@@ -41,13 +43,22 @@ const getPlayerClientData = (player) => {
 // Fetch user avatar URL from database
 const fetchUserAvatar = async (userId, socketId) => {
   try {
-    if (!userId) return;
-    const user = await UserModel.findByNetid(userId);
+    if (!userId) {
+      console.log(`Cannot fetch avatar: No userId provided for socketId ${socketId}`);
+      return;
+    }
+    
+    const user = await UserModel.findById(userId);
     if (user && user.avatar_url) {
+      console.log(`Successfully fetched avatar for user ${userId} (socket ${socketId}): ${user.avatar_url}`);
       playerAvatars.set(socketId, user.avatar_url);
+    } else {
+      console.log(`No avatar found for user ${userId} (socket ${socketId})`);
+      // Set to null explicitly to indicate we checked but found no avatar
+      playerAvatars.set(socketId, null);
     }
   } catch (err) {
-    console.error('Error fetching user avatar:', err);
+    console.error(`Error fetching avatar for user ${userId} (socket ${socketId}):`, err);
   }
 };
 
@@ -89,7 +100,9 @@ const initialize = (io) => {
     
     // Fetch user avatar when connecting
     if (userId) {
-      fetchUserAvatar(netid, socket.id);
+      fetchUserAvatar(userId, socket.id);
+    } else {
+      console.log(`No userId available for fetching avatar: ${netid} (${socket.id})`);
     }
     
     // Emit welcome event with user info
@@ -99,9 +112,9 @@ const initialize = (io) => {
     });
     
     // Handle joining practice mode
-    socket.on('practice:join', async () => {
+    socket.on('practice:join', async (options = {}) => {
       try {
-        console.log(`User ${netid} joining practice mode`);
+        console.log(`User ${netid} joining practice mode with options:`, options);
         
         // Check if player is already in a race
         let alreadyInRace = false;
@@ -132,19 +145,35 @@ const initialize = (io) => {
           }
         }
         
-        // Get a random snippet
-        const snippet = await SnippetModel.getRandom();
+        let snippet;
+        let lobby;
         
-        if (!snippet) {
-          console.error('Failed to load snippet for practice mode');
-          socket.emit('error', { message: 'Failed to load snippet' });
-          return;
+        // Handle timed test mode
+        if (options.testMode === 'timed' && options.testDuration) {
+          // Create a timed test snippet
+          const duration = parseInt(options.testDuration) || 30;
+          snippet = createTimedTestSnippet(duration);
+          
+          // Since this is a virtual snippet, create a practice lobby without a snippet ID
+          lobby = await RaceModel.create('practice', null);
+          
+          console.log(`Created timed test (${duration}s) for practice mode`);
+        } else {
+          // Standard snippet mode - get a random snippet from database
+          snippet = await SnippetModel.getRandom();
+          
+          if (!snippet) {
+            console.error('Failed to load snippet for practice mode');
+            socket.emit('error', { message: 'Failed to load snippet' });
+            return;
+          }
+          
+          console.log(`Loaded snippet ID ${snippet.id} for practice mode`);
+          
+          // Create a practice lobby
+          lobby = await RaceModel.create('practice', snippet.id);
         }
         
-        console.log(`Loaded snippet ID ${snippet.id} for practice mode`);
-        
-        // Create a practice lobby
-        const lobby = await RaceModel.create('practice', snippet.id);
         console.log(`Created practice lobby with code ${lobby.code}`);
         
         // Join the socket room
@@ -166,7 +195,9 @@ const initialize = (io) => {
           code: lobby.code,
           snippet: {
             id: snippet.id,
-            text: snippet.text
+            text: snippet.text,
+            is_timed_test: snippet.is_timed_test || false,
+            duration: snippet.duration || null
           },
           status: 'waiting',
           type: 'practice',
@@ -180,7 +211,9 @@ const initialize = (io) => {
           lobbyId: lobby.id,
           snippet: {
             id: snippet.id,
-            text: snippet.text
+            text: snippet.text,
+            is_timed_test: snippet.is_timed_test || false,
+            duration: snippet.duration || null
           }
         });
       } catch (err) {
@@ -454,7 +487,9 @@ const initialize = (io) => {
           if (progressData && !progressData.finishHandled) {
              progressData.finishHandled = true; // Mark finish as handled
              playerProgress.set(socket.id, progressData);
-             handlePlayerFinish(io, code, socket.id);
+             handlePlayerFinish(io, code, socket.id, progressData).catch(err => {
+               console.error('Error handling player finish:', err);
+             });
           }
         }
       } catch (err) {
@@ -462,72 +497,152 @@ const initialize = (io) => {
       }
     });
     
-    // Handle race result
+    // Handle race result submission
     socket.on('race:result', async (data) => {
       try {
-        // Client sends { code, lobbyId, snippetId, wpm, accuracy, completion_time }
         const { code, lobbyId, snippetId, wpm, accuracy, completion_time } = data;
-        const userIdFromSocket = socket.userInfo?.userId; // Get authenticated userId
+        const { user: netid, userId } = socket.userInfo;
 
-        // Validate required data
-        if (!lobbyId || !snippetId || !userIdFromSocket) {
-            console.error(`Missing required data for race result processing: lobbyId=${lobbyId}, snippetId=${snippetId}, userId=${userIdFromSocket}`);
-            socket.emit('error', { message: 'Failed to record result due to missing identifiers.' });
-            return;
-        }
-        
-        console.log(`Received race result from ${netid}: ${wpm} WPM, ${accuracy}% accuracy, time: ${completion_time}`);
-        
-        // Use the completion_time sent by the client directly
-        const completionTime = completion_time;
+        // --- BEGIN DEBUG LOGGING --- 
+        console.log(`[DEBUG race:result] Received data:`, JSON.stringify(data));
+        console.log(`[DEBUG race:result] User info: netid=${netid}, userId=${userId}`);
+        // --- END DEBUG LOGGING ---
 
-        // Basic validation for completion time
-        if (typeof completionTime !== 'number' || completionTime < 0) {
-            console.warn(`Invalid completion_time received from ${netid}: ${completionTime}`);
-            return; // Or handle appropriately
+        if (!userId) {
+          console.error(`[ERROR race:result] Cannot record result: No userId for socket ${socket.id} (netid: ${netid})`);
+          return;
         }
+
+        console.log(`Received result from ${netid}: WPM ${wpm}, Acc ${accuracy}, Time ${completion_time}`);
+
+        // Check if the player is in the specified race
+        const players = racePlayers.get(code);
+        const player = players?.find(p => p.id === socket.id);
+        const race = activeRaces.get(code);
         
-        console.log(`User ${netid} completed race ${code} in ${completionTime.toFixed(2)} seconds (client-reported)`);
-        
-        // Record race result in database
-        let currentResults = [];
-        let processedResults = [];
+        // --- BEGIN DEBUG LOGGING --- 
+        console.log(`[DEBUG race:result] Found player: ${!!player}, Found race: ${!!race}`);
+        if (race) {
+          console.log(`[DEBUG race:result] Race snippet info: is_timed=${race.snippet?.is_timed_test}, duration=${race.snippet?.duration}`);
+        }
+        // --- END DEBUG LOGGING ---
+
+        if (!player || !race) {
+          console.warn(`[WARN race:result] Received result for race ${code}, but player ${netid} or race not found`);
+          return;
+        }
+
+        // Check if the result is for a timed test
+        if (race.snippet?.is_timed_test && race.snippet?.duration) {
+          const duration = race.snippet.duration;
+          // --- BEGIN DEBUG LOGGING --- 
+          console.log(`[DEBUG race:result] Processing as TIMED test. Duration: ${duration}`);
+          console.log(`[DEBUG race:result] Calling insertTimedResult with: userId=${userId}, duration=${duration}, wpm=${wpm}, accuracy=${accuracy}`);
+          // --- END DEBUG LOGGING ---
+          try {
+            await insertTimedResult(userId, duration, wpm, accuracy);
+            console.log(`[SUCCESS race:result] Saved timed test result for ${netid} (duration: ${duration})`);
+          } catch (dbError) {
+            console.error(`[ERROR race:result] Failed to insert timed result for user ${userId}:`, dbError);
+            // Optionally emit an error back to client if needed
+          }
+          
+          // Use UserModel correctly for stats updates
+          try {
+            await UserModel.updateStats(userId, wpm, accuracy, true); 
+            await UserModel.updateFastestWpm(userId, wpm); 
+            console.log(`[DEBUG race:result] Updated user stats (if applicable) for ${netid}`);
+          } catch (statsError) {
+             console.error(`[ERROR race:result] Failed to update user stats for ${userId} after timed result:`, statsError);
+          }
+
+        } else if (snippetId) {
+           // --- BEGIN DEBUG LOGGING --- 
+           console.log(`[DEBUG race:result] Processing as REGULAR race. Snippet ID: ${snippetId}`);
+           console.log(`[DEBUG race:result] Calling RaceModel.saveResult with: userId=${userId}, lobbyId=${lobbyId}, snippetId=${snippetId}, wpm=${wpm}, accuracy=${accuracy}, completion_time=${completion_time}`);
+          // --- END DEBUG LOGGING ---
+          // Regular race result, save to race_results table
+          try {
+            await RaceModel.saveResult(userId, lobbyId, snippetId, wpm, accuracy, completion_time);
+            console.log(`[SUCCESS race:result] Saved regular race result for ${netid} (lobby: ${lobbyId}, snippet: ${snippetId})`);
+          } catch (dbError) {
+             console.error(`[ERROR race:result] Failed to insert regular race result for user ${userId}:`, dbError);
+          }
+          
+          // Use UserModel correctly for stats updates
+          try {
+            await UserModel.updateStats(userId, wpm, accuracy, false);
+            await UserModel.updateFastestWpm(userId, wpm);
+             console.log(`[DEBUG race:result] Updated user stats (if applicable) for ${netid}`);
+          } catch (statsError) {
+             console.error(`[ERROR race:result] Failed to update user stats for ${userId} after regular result:`, statsError);
+          }
+        } else {
+          console.warn(`[WARN race:result] Result from ${netid} for race ${code} has no snippetId and is not a timed test.`);
+        }
+
+        // Handle player finish logic (updates progress, checks if race ends)
+        // Wrap in try/catch as well
         try {
-          await RaceModel.recordResult(
-            userIdFromSocket, 
-            lobbyId,          
-            snippetId,        
-            wpm,
-            accuracy,
-            completionTime
-          );
-          console.log(`Recorded race result for ${netid} in database`);
-          
-          // Fetch current results list immediately after recording
-          currentResults = await RaceModel.getResults(lobbyId);
-          console.log(`Fetched ${currentResults.length} current results for race ${code}`);
-          
-          // <<< START: Convert decimal strings to numbers >>>
-          processedResults = currentResults.map(result => ({ 
-            ...result,
-            wpm: typeof result.wpm === 'string' ? parseFloat(result.wpm) : result.wpm,
-            accuracy: typeof result.accuracy === 'string' ? parseFloat(result.accuracy) : result.accuracy,
-            completion_time: typeof result.completion_time === 'string' ? parseFloat(result.completion_time) : result.completion_time,
-          }));
-          // <<< END: Convert decimal strings to numbers >>>
-          
-        } catch (dbErr) {
-          console.error('Error processing race result or fetching updated results:', dbErr);
-          // Consider not broadcasting if DB operations failed
-          return; 
+          await handlePlayerFinish(io, code, socket.id, { wpm, accuracy, completion_time });
+          console.log(`[DEBUG race:result] Successfully handled player finish logic for ${netid}`);
+        } catch (finishError) {
+          console.error(`[ERROR race:result] Error in handlePlayerFinish for ${netid}:`, finishError);
         }
-        
-        // Broadcast updated results list to all players (using processed results)
-        io.to(code).emit('race:resultsUpdate', { results: processedResults }); 
-        console.log(`Broadcasted results update for race ${code} to ${io.sockets.adapter.rooms.get(code)?.size || 0} clients`);
 
       } catch (err) {
-        console.error('Error handling race:result event:', err);
+        console.error('[ERROR race:result] General error in handler:', err);
+        // Avoid emitting generic error to prevent potential info leak
+        // socket.emit('error', { message: 'Failed to save race result' }); 
+      }
+    });
+    
+    // Handle fetching timed leaderboard data
+    socket.on('leaderboard:timed', async (data, callback) => {
+      try {
+        const { duration, period = 'alltime' } = data;
+        console.log(`Fetching timed leaderboard for duration ${duration}, period ${period}`);
+
+        if (![15, 30, 60, 120].includes(duration) || !['daily', 'alltime'].includes(period)) {
+          return callback({ error: 'Invalid parameters for timed leaderboard' });
+        }
+
+        const leaderboardData = await getTimedLeaderboard(duration, period);
+
+        // Use UserModel correctly to fetch avatars
+        const leaderboardWithAvatars = await Promise.all(leaderboardData.map(async (entry) => {
+          const user = await UserModel.findById(entry.user_id);
+          return {
+            ...entry,
+            avatar_url: user?.avatar_url || null
+          };
+        }));
+
+        callback({ leaderboard: leaderboardWithAvatars });
+      } catch (err) {
+        console.error('Error fetching timed leaderboard:', err);
+        callback({ error: 'Failed to fetch timed leaderboard' });
+      }
+    });
+    
+    // Handle requesting more words for timed tests
+    socket.on('timed:more_words', (data) => {
+      const { code, wordCount = 20 } = data; // Default to 20 words
+      const race = activeRaces.get(code);
+
+      if (race && race.snippet && race.snippet.is_timed_test) {
+        const newWords = generateTimedText(wordCount, { capitalize: false, punctuation: false });
+        const updatedText = race.snippet.text + ' ' + newWords;
+
+        // Update the text in memory
+        race.snippet.text = updatedText;
+
+        // Broadcast the updated text to all players in the race
+        io.to(code).emit('timed:text_update', {
+          code: code,
+          text: updatedText
+        });
+        console.log(`Sent ${wordCount} new words for timed test ${code}`);
       }
     });
     
@@ -736,45 +851,68 @@ const startRace = async (io, code) => {
 };
 
 // Handle player finishing a race
-const handlePlayerFinish = async (io, code, playerId) => {
-  try {
-    const race = activeRaces.get(code);
-    
-    if (!race || race.status !== 'racing') {
-      console.warn(`Race ${code} is not in racing status, cannot handle player finish`);
-      return;
-    }
-    
-    const players = racePlayers.get(code);
-    if (!players) {
-      console.warn(`Players list not found for race ${code}`);
-      return;
-    }
-    
-    const player = players.find(p => p.id === playerId);
-    
-    if (!player) {
-      console.warn(`Player ${playerId} not found in race ${code}`);
-      return;
-    }
-    
-    console.log(`Player ${player.netid} has finished race ${code}`);
-    
-    // Check if all players have finished
-    const allCompleted = players.every(p => {
-      const progress = playerProgress.get(p.id);
-      return progress && progress.completed;
-    });
-    
-    // If all players are done, end the race
-    if (allCompleted) {
-      console.log(`All players in race ${code} have finished, ending race`);
-      await endRace(io, code);
-    } else {
-      console.log(`Waiting for remaining players to finish race ${code}`);
-    }
-  } catch (err) {
-    console.error('Error handling player finish:', err);
+const handlePlayerFinish = async (io, code, playerId, resultData) => {
+  const players = racePlayers.get(code);
+  const race = activeRaces.get(code);
+  const player = players?.find(p => p.id === playerId);
+
+  if (!player || !race) return; // Player or race not found
+
+  // Update player progress to 100% and mark completed
+  const now = Date.now();
+  const progress = {
+    percentage: 100,
+    position: race.snippet?.text?.length || 0, // Assuming full text length
+    completed: true,
+    timestamp: now,
+    wpm: resultData?.wpm,
+    accuracy: resultData?.accuracy,
+    completion_time: resultData?.completion_time
+  };
+  playerProgress.set(playerId, progress);
+  player.completed = true; // Mark player as completed in the main player list as well
+
+  // Send final progress update for this player
+  io.to(code).emit('race:playerProgress', {
+    netid: player.netid,
+    percentage: progress.percentage,
+    position: progress.position,
+    completed: progress.completed,
+    wpm: progress.wpm,
+    accuracy: progress.accuracy,
+    completion_time: progress.completion_time,
+  });
+
+  // Collect all results from completed players
+  const allResults = players
+    .filter(p => p.completed && playerProgress.has(p.id))
+    .map(p => {
+      const prog = playerProgress.get(p.id);
+      const avatarUrl = playerAvatars.get(p.id);
+      
+      // Log avatar status for debugging
+      console.log(`Player ${p.netid} avatar status:`, {
+        hasAvatar: !!avatarUrl,
+        avatarUrl: avatarUrl || 'null'
+      });
+      
+      return {
+        netid: p.netid,
+        wpm: prog.wpm,
+        accuracy: prog.accuracy,
+        completion_time: prog.completion_time,
+        avatar_url: avatarUrl // Include avatar URL
+      };
+    })
+    .sort((a, b) => a.completion_time - b.completion_time); // Sort by time initially
+
+  // Broadcast updated results list
+  io.to(code).emit('race:resultsUpdate', { results: allResults });
+
+  // Check if all players have finished
+  if (players.every(p => p.completed)) {
+    console.log(`All players finished in race ${code}`);
+    await endRace(io, code);
   }
 };
 

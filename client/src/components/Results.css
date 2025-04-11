@@ -7,12 +7,15 @@
     border-radius: 8px;
     min-height: 350px; /* change to be more responsive later */
     width: 100%;
+    position: relative;
+    top: -5vh;
   }
   
   .results-container h2 {
     color: #F58025;
     margin-top: 0;
-    margin-bottom: 2rem;
+    margin-bottom: 1.5rem;
+    font-size: 1.8rem;
   }
   
   /* Winner Showcase Styles */
@@ -242,76 +245,175 @@
     color: #ccc;
   }
   
+  /* Practice results container - simplified */
   .practice-results {
-    width: 100%;
     max-width: 500px;
-    flex-grow: 1;
     display: flex;
     flex-direction: column;
+    background-color: #222222;
+    border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    overflow: hidden;
+    border: 1px solid rgba(245, 128, 37, 0.2);
+    position: relative;
+    z-index: 5;
     align-items: center;
   }
   
+  /* Hide the Practice Results heading as it's redundant with the main Results heading */
   .practice-results h3 {
-    text-align: center;
-    color: #F58025;
-    margin-bottom: 1.5rem;
+    display: none;
   }
   
-  .stat-item {
+  /* Practice result stat items - now vertical layout */
+  .practice-results .stat-item {
     display: flex;
-    justify-content: space-between;
-    padding: 1rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    transition: background-color 0.2s ease;
+    box-sizing: border-box;
+    text-align: center;
+    max-width: -webkit-fill-available;
+    width: -webkit-fill-available;
   }
   
-  .stat-item:last-child {
+  .practice-results .stat-item:hover {
+    background-color: rgba(255, 255, 255, 0.03);
+  }
+  
+  .practice-results .stat-item:last-child {
     border-bottom: none;
   }
   
-  .stat-label {
+  .practice-results .stat-label {
     font-weight: bold;
+    font-size: 1rem;
+    color: rgba(255, 255, 255, 0.85);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 0.5rem;
+    text-align: center;
   }
   
-  .stat-value {
+  .practice-results .stat-label i {
+    margin-right: 8px;
+    font-size: 1.1rem;
     color: #F58025;
+  }
+  
+  .practice-results .stat-value {
+    color: #F58025;
+    font-weight: bold;
+    font-size: 1.5rem;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
   }
   
   .back-btn {
-    padding: 0.75rem 2rem;
+    padding: 0.7rem 2rem;
     background-color: #F58025;
     color: white;
     border: none;
-    border-radius: 4px;
+    border-radius: 8px;
     cursor: pointer;
     font-size: 1rem;
-    transition: background-color 0.2s;
-    margin-top: auto;
+    font-weight: 600;
+    transition: all 0.2s ease;
+    box-shadow: 0 4px 12px rgba(245, 128, 37, 0.3);
+    margin-top: 1rem;
+    width: 200px;
   }
   
   .back-btn:hover {
-    background-color: #d56a1a;
+    background-color: #ff9d5c;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 14px rgba(245, 128, 37, 0.4);
+  }
+  
+  .back-btn:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 8px rgba(245, 128, 37, 0.3);
   }
 
+  /* Keyboard shortcuts - better spacing */
   .keyboard-shortcuts {
-    margin-top: 1.5rem;
+    margin: 0;
     text-align: center;
-    padding: 1rem;
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 0.85rem;
+    background-color: rgba(30, 30, 30, 0.6);
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
   }
 
   .keyboard-shortcuts p {
-    color: #999;
+    color: rgba(255, 255, 255, 0.7);
     margin: 0;
+    font-size: 0.9rem;
   }
-
+  
   .keyboard-shortcuts kbd {
     background-color: #333;
-    border: 1px solid #666;
-    border-radius: 3px;
+    border: 1px solid #555;
+    border-radius: 4px;
+    box-shadow: 0 2px 0 #222;
     padding: 2px 6px;
     font-family: monospace;
-    font-size: 0.9em;
+    font-size: 0.85em;
     color: #F58025;
+    margin: 0 3px;
+    display: inline-block;
+    font-weight: 600;
+  }
+  
+  .keyboard-shortcuts kbd:hover {
+    background-color: #3a3a3a;
+  }
+  
+  /* Leaderboard button - improved spacing and visibility */
+  .leaderboard-shortcut-btn {
+    display: flex; 
+    align-items: center;
+    justify-content: center;
+    gap: 8px; 
+    width: calc(100% - 2.5rem); 
+    margin: 0.75rem auto 1.25rem;
+    padding: 0.85rem 1rem;
+    background-color: #3a3a3a;
+    color: #ccc;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.95rem;
+    font-weight: 600;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  }
+
+  .leaderboard-shortcut-btn:hover {
+    background-color: #F58025;
+    color: white;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 10px rgba(245, 128, 37, 0.3);
+  }
+
+  .leaderboard-shortcut-btn i {
+    font-size: 1.1em;
+  }
+  
+  /* Highlight highest value */
+  .stat-value.highlight {
+    color: #ffc107;
+    position: relative;
+  }
+  
+  .stat-value.highlight::after {
+    content: '🏆';
+    position: absolute;
+    font-size: 0.9rem;
+    right: -25px;
+    top: 4px;
   }
 
   /* Avatar Modal Styles */
@@ -410,4 +512,26 @@
     letter-spacing: 0.5px;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
     border: 1px solid rgba(245, 128, 37, 0.3);
+  }
+
+  /* Loading results state */
+  .loading-results {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem 1rem;
+    text-align: center;
+  }
+
+  .loading-results p {
+    margin-top: 0.75rem;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 1rem;
+  }
+
+  .spinner-border.text-orange {
+    color: #F58025;
+    width: 2.5rem;
+    height: 2.5rem;
   }

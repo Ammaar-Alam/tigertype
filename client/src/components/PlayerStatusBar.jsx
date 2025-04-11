@@ -72,6 +72,7 @@ function PlayerStatusBar({ players, isRaceInProgress, currentUser, onReadyClick 
                   <img 
                     src={player.avatar_url || defaultProfileImage} 
                     alt={`${player.netid}'s avatar`}
+                    onError={(e) => { e.target.onerror = null; e.target.src=defaultProfileImage; }}
                   />
                 </div>
                 <span className="player-name">{player.netid}</span>
@@ -134,6 +135,7 @@ function PlayerStatusBar({ players, isRaceInProgress, currentUser, onReadyClick 
                 src={enlargedAvatar.url} 
                 alt={`${enlargedAvatar.netid}'s avatar`} 
                 className="avatar-modal-image"
+                onError={(e) => { e.target.onerror = null; e.target.src=defaultProfileImage; }}
               />
               <div className="avatar-modal-name">{enlargedAvatar.netid}</div>
             </div>

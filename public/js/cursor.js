@@ -111,21 +111,24 @@ class CursorManager {
       
       // Find and mark the new current element
       if (spans[index]) {
-        spans[index].classList.add('current');
-        spans[index].classList.add('next-to-type');
-        this.currentElement = spans[index];
-        
-        if (isError) {
-          spans[index].classList.add('error');
-        }
-        
-        // Ensure the element is visible
-        this.ensureCursorVisible(spans[index]);
-        
-        // Start blinking if not already
-        if (!this.isBlinking) {
-          this.startBlink();
-        }
+        // Add the current class with a slight delay to ensure smooth transition
+        requestAnimationFrame(() => {
+          spans[index].classList.add('current');
+          spans[index].classList.add('next-to-type');
+          this.currentElement = spans[index];
+          
+          if (isError) {
+            spans[index].classList.add('error');
+          }
+          
+          // Ensure the element is visible
+          this.ensureCursorVisible(spans[index]);
+          
+          // Start blinking if not already
+          if (!this.isBlinking) {
+            this.startBlink();
+          }
+        });
       } else {
         this.currentElement = null;
       }

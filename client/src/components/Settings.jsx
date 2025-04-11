@@ -15,6 +15,8 @@ function Settings({ isOpen, onClose }) {
     return localStorage.getItem('lightMode') === 'true';
   });
 
+  const [defaultCursor, setDefaultCursor] = useState(true);
+
   // Apply fonts when component mounts or fonts change
   useEffect(() => {
     document.documentElement.style.setProperty('--main-font', whichFont);
@@ -44,18 +46,41 @@ function Settings({ isOpen, onClose }) {
     );
     document.documentElement.style.setProperty(
       '--correct-bg-color', 
-      lightMode ? '#008080' : 'rgba(128, 239, 128, 0.55)'
+      lightMode ? '#0A970A' : 'rgba(128, 239, 128, 0.55)'
+    );
+    document.documentElement.style.setProperty(
+      '--incorrect-color',
+      lightMode ? '#FF0000' : 'rgba(255, 65, 47, 0.55)'
+    );
+    document.documentElement.style.setProperty(
+      '--incorrect-bg-color',
+      lightMode ? 'rgba(255,116,108, 0.30)' : 'rgba(255,116,108, 0.10)'
+    );
+    document.documentElement.style.setProperty(
+      '--current-color',
+      lightMode ? 'black' : 'white'
     );
     localStorage.setItem('preferredFont', whichFont);
     localStorage.setItem('typingSound', typingSound);
     localStorage.setItem('lightMode', lightMode);
   }, [whichFont, typingSound, lightMode]);
 
-  if (!isOpen) return null;
+  useEffect(() => {
+    const color = defaultCursor ? "#3a506b" : "none";
+    const line = defaultCursor ? "hidden" : "visible";
+    document.documentElement.style.setProperty('--default-cursor', color);
+    document.documentElement.style.setProperty('--line-cursor', line);
+  }, [defaultCursor]);
+
+  if (!isOpen) {return null};
 
   const handleTypingFontChange = (e) => {
     const newFont = e.target.value;
     setWhichFont(newFont);
+  };
+
+  const handleDefaultCursor = (e) => {
+    setDefaultCursor(!defaultCursor);
   };
 
   const handleSoundToggle = () => {
@@ -87,7 +112,18 @@ function Settings({ isOpen, onClose }) {
             <option value="JetBrains Mono, monospace">JetBrains Mono</option>
             <option value="Monaco, monospace">Monaco</option>
           </select>
-
+          <p>Block Cursor</p>
+          <div className="toggle">
+            <label className="switch">
+            <input 
+                className='cursor-setting' 
+                type='checkbox' 
+                checked={defaultCursor} 
+                onChange={handleDefaultCursor} />
+                <span className="slider"></span>
+            </label>
+            <span className="sound-label">{defaultCursor ? ' On' : ' Off'}</span>
+          </div>
           <p>Typing Sound</p>
           <div className="toggle">
             <label className="switch">

@@ -98,6 +98,16 @@ export const SocketProvider = ({ children }) => {
     }
   };
 
+  const joinPracticeMode = () => {
+    if (!socket || !connected) return;
+    
+    // Request a practice mode
+    socket.emit('practice:join', {
+      testMode: 'snippet',  // default to snippet mode
+      testDuration: 15      // default to 15 seconds
+    });
+  };
+
   return (
     <SocketContext.Provider value={{ socket, connected, error, reconnect, socketLoaded }}>
       {children}

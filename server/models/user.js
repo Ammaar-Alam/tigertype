@@ -1,7 +1,20 @@
 const db = require('../config/database');
+const pool = require('../config/database').pool;
 
 // User model for managing user-related database operations
 const User = {
+  // Find user by ID
+  async findById(userId) {
+    if (!userId) return null;
+    try {
+      const result = await pool.query('SELECT * FROM users WHERE id = $1', [userId]);
+      return result.rows[0];
+    } catch (err) {
+      console.error(`Error finding user by ID ${userId}:`, err);
+      throw err;
+    }
+  },
+
   // Find user by netid, including bio and avatar_url
   async findByNetid(netid) {
     try {
@@ -241,6 +254,63 @@ const User = {
     } catch (err) {
       console.error('Error getting user stats:', err);
       throw err;
+    }
+  },
+
+  // Update user's average WPM, accuracy, and races completed
+  // Conditionally updates based on whether the result is from a timed test
+  async updateStats(userId, wpm, accuracy, isTimed) {
+    if (!userId) return;
+    try {
+      // Fetch current stats using the correct internal call
+      const user = await User.findById(userId); 
+      if (!user) return;
+
+      // Only update stats if the result is from a regular race (not timed)
+      if (!isTimed) {
+        const currentAvgWpm = parseFloat(user.avg_wpm) || 0;
+        const currentAvgAcc = parseFloat(user.avg_accuracy) || 0;
+        const racesCompleted = user.races_completed || 0;
+
+        // Calculate new averages
+        const newAvgWpm = ((currentAvgWpm * racesCompleted) + wpm) / (racesCompleted + 1);
+        const newAvgAcc = ((currentAvgAcc * racesCompleted) + accuracy) / (racesCompleted + 1);
+        const newRacesCompleted = racesCompleted + 1;
+
+        await pool.query(
+          'UPDATE users SET avg_wpm = $1, avg_accuracy = $2, races_completed = $3 WHERE id = $4',
+          [newAvgWpm.toFixed(2), newAvgAcc.toFixed(2), newRacesCompleted, userId]
+        );
+        console.log(`Updated regular stats for user ${userId}`);
+      } else {
+        console.log(`Skipping regular stats update for user ${userId} (timed test)`);
+      }
+    } catch (error) {
+      console.error(`Error updating stats for user ${userId}:`, error);
+    }
+  },
+
+  // Update user's fastest WPM if the new WPM is higher
+  async updateFastestWpm(userId, wpm) {
+    if (!userId) return;
+    try {
+      // Fetch current fastest_wpm using the correct internal call
+      const user = await User.findById(userId); 
+      if (!user) return;
+
+      // Update fastest_wpm if the new wpm is higher
+      const currentFastest = parseFloat(user.fastest_wpm) || 0;
+      if (wpm > currentFastest) {
+        await pool.query(
+          'UPDATE users SET fastest_wpm = $1 WHERE id = $2',
+          [wpm, userId]
+        );
+        console.log(`Updated fastest_wpm for user ${userId} to ${wpm}`);
+      } else {
+        console.log(`Skipping fastest_wpm update for user ${userId} (${wpm} not higher than ${currentFastest})`);
+      }
+    } catch (error) {
+      console.error(`Error updating fastest_wpm for user ${userId}:`, error);
     }
   }
 };

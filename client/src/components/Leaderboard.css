@@ -1,0 +1,305 @@
+/* Remove the leaderboard-container as we're now rendering directly in the modal */
+/* Heading Styling */
+h2 {
+  color: #F58025; /* Orange */
+  margin-top: 0;
+  margin-bottom: 1.5rem;
+  font-size: 1.8rem;
+  font-weight: bold;
+  text-align: center;
+}
+
+/* Controls Styling */
+.leaderboard-controls {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1.5rem; /* Spacing between groups */
+  margin-bottom: 2rem;
+  padding: 0.75rem;
+  background-color: rgba(20, 20, 20, 0.3); /* Darker background */
+  border-radius: 8px;
+  width: 100%;
+  max-width: fit-content;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.control-group {
+  display: flex;
+  gap: 0.5rem; /* Spacing within group */
+}
+
+.control-button {
+  padding: 0.6rem 1.2rem;
+  background-color: #3a3a3a; /* Dark gray */
+  color: #ccc; /* Light gray text */
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+}
+
+.control-button:hover {
+  background-color: #4a4a4a;
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+.control-button.active {
+  background-color: #F58025; /* Orange */
+  color: white;
+  box-shadow: 0 3px 8px rgba(245, 128, 37, 0.3);
+}
+
+/* List Styling */
+.leaderboard-list {
+  width: 100%;
+  flex-grow: 1;
+  overflow-y: auto;
+  border-radius: 8px;
+  background-color: rgba(30, 30, 30, 0.4); /* Slightly darker but still transparent */
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  padding: 0.5rem;
+}
+
+.leaderboard-item {
+  display: flex;
+  align-items: center;
+  padding: 0.9rem 1.2rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  transition: background-color 0.2s ease;
+}
+
+.leaderboard-item:last-child {
+  border-bottom: none;
+}
+
+.leaderboard-item:hover {
+  background-color: rgba(255, 255, 255, 0.04);
+}
+
+.current-user {
+  background-color: rgba(245, 128, 37, 0.15); /* Highlight user's own score */
+  border-left: 4px solid #F58025;
+  padding-left: calc(1.2rem - 4px); /* Adjust padding for border */
+}
+
+.leaderboard-rank {
+  font-weight: bold;
+  width: 40px;
+  text-align: center;
+  color: #F58025; /* Orange rank */
+  font-size: 1.1rem;
+  margin-right: 1rem;
+  flex-shrink: 0;
+}
+
+.leaderboard-player {
+  display: flex;
+  align-items: center;
+  flex-grow: 1;
+  gap: 1rem;
+  min-width: 150px; /* Ensure player name area has space */
+}
+
+.leaderboard-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 2px solid #444;
+  background-color: #1e1e1e;
+  cursor: pointer;
+  transition: transform 0.2s ease, border-color 0.2s ease;
+  flex-shrink: 0;
+}
+
+.leaderboard-avatar:hover {
+  transform: scale(1.08);
+  border-color: #F58025;
+}
+
+.leaderboard-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.leaderboard-netid {
+  font-weight: 600;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.leaderboard-stats {
+  display: flex;
+  gap: 1.5rem; /* Increased gap */
+  margin-left: auto;
+  align-items: baseline;
+  flex-shrink: 0; /* Prevent stats from shrinking too much */
+}
+
+.leaderboard-wpm {
+  min-width: 80px;
+  text-align: right;
+  color: #F58025; /* Orange WPM */
+  font-weight: bold;
+  font-size: 1.05rem;
+}
+
+.leaderboard-accuracy {
+  min-width: 70px;
+  text-align: right;
+  color: #4caf50; /* Green accuracy */
+  font-weight: 500;
+}
+
+.leaderboard-date {
+  min-width: 80px;
+  text-align: right;
+  color: #aaa; /* Dimmer date */
+  font-size: 0.85rem;
+}
+
+/* Loading and Error States */
+.loading-indicator {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem 1rem;
+  text-align: center;
+  flex-grow: 1;
+}
+
+.loading-indicator p {
+  margin-top: 1rem;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 1rem;
+}
+
+.spinner-border.text-orange {
+  color: #F58025 !important; /* Ensure orange color */
+  width: 3rem;
+  height: 3rem;
+}
+
+.error-message {
+  color: #f44336; /* Red error text */
+  text-align: center;
+  padding: 1rem;
+  background-color: rgba(244, 67, 54, 0.1);
+  border: 1px solid rgba(244, 67, 54, 0.3);
+  border-radius: 6px;
+  margin-top: 1rem;
+}
+
+.no-results {
+  color: #aaa;
+  text-align: center;
+  padding: 2rem;
+  font-style: italic;
+}
+
+/* Avatar Modal Styles (Copied & adapted from Results.css) */
+.avatar-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.85);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  backdrop-filter: blur(8px);
+  animation: fadeIn 0.25s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.avatar-modal {
+  background-color: #2a2a2a;
+  border-radius: 12px;
+  box-shadow: 0 15px 35px rgba(0, 0, 0, 0.6);
+  position: relative;
+  max-width: 90%;
+  animation: scaleIn 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+  border: 2px solid #3a3a3a;
+  overflow: hidden;
+}
+
+@keyframes scaleIn {
+  from { transform: scale(0.85); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.avatar-modal-close {
+  position: absolute;
+  top: 15px;
+  right: 15px;
+  width: 36px;
+  height: 36px;
+  background-color: rgba(0, 0, 0, 0.6);
+  border: none;
+  border-radius: 50%;
+  color: white;
+  font-size: 28px;
+  line-height: 28px;
+  cursor: pointer;
+  z-index: 10;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  transition: all 0.2s ease;
+  padding: 0;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+}
+
+.avatar-modal-close:hover {
+  background-color: rgba(245, 128, 37, 0.9);
+  transform: scale(1.1);
+}
+
+.avatar-modal-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 30px;
+}
+
+.avatar-modal-image {
+  width: auto;
+  height: auto;
+  max-width: 500px;
+  max-height: 500px;
+  border-radius: 12px;
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.4);
+  object-fit: contain;
+  border: 3px solid #F58025;
+  background-color: #1a1a1a;
+}
+
+.avatar-modal-name {
+  margin-top: 20px;
+  color: white;
+  font-size: 1.4rem;
+  font-weight: 600;
+  text-align: center;
+  background-color: rgba(30, 30, 30, 0.9);
+  padding: 10px 25px;
+  border-radius: 25px;
+  letter-spacing: 0.5px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(245, 128, 37, 0.3);
+} 

@@ -104,6 +104,10 @@
   color: #fff;
 }
 
+ .cursor-setting {
+    margin-right: 5px;
+  }
+
 .settings-content p {
   color: var(--mode-text-color);
 }

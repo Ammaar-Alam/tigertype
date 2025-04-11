@@ -72,7 +72,16 @@ export const RaceProvider = ({ children }) => {
     inProgress: false,      // Whether the race is currently in progress
     completed: false,       // Whether the race has been completed
     results: [],            // Array of objects with netid, wpm, accuracy, completion_time
-    manuallyStarted: false  // Flag to track if practice mode was manually started
+    manuallyStarted: false, // Flag to track if practice mode was manually started
+    timedTest: {            // Configuration for timed tests
+      enabled: false,
+      duration: 15          // Default duration in seconds
+    },
+    snippetFilters: {       // Filters for snippets
+      difficulty: 'all',
+      type: 'all',
+      department: 'all'
+    }
   });
   
   // Local typing state
@@ -292,7 +301,18 @@ export const RaceProvider = ({ children }) => {
   const joinPracticeMode = () => {
     if (!socket || !connected) return;
     console.log('Joining practice mode...');
-    socket.emit('practice:join');
+    
+    // Use current state values, not potentially stale ones from closure
+    const currentRaceState = { ...raceState };
+    
+    // Pass test configuration when joining practice mode
+    const options = {
+      testMode: currentRaceState.timedTest?.enabled ? 'timed' : 'snippet',
+      testDuration: currentRaceState.timedTest?.duration || 15,
+      snippetFilters: currentRaceState.snippetFilters
+    };
+    
+    socket.emit('practice:join', options);
   };
 
   const joinPublicRace = () => {
@@ -324,16 +344,29 @@ export const RaceProvider = ({ children }) => {
       lockedPosition: 0
     });
     
-    setRaceState(prev => ({
-      ...prev,
-      startTime: null,
-      inProgress: false,
-      completed: false,
-      manuallyStarted: false
-    }));
-    
-    // Request a new practice snippet
-    socket.emit('practice:join');
+    setRaceState(prev => {
+      // Get current race state
+      const currentState = {
+        ...prev,
+        startTime: null,
+        inProgress: false,
+        completed: false,
+        manuallyStarted: false
+      };
+      
+      // Request a new practice snippet with test configuration 
+      // using the current state values (not stale ones)
+      const options = {
+        testMode: currentState.timedTest?.enabled ? 'timed' : 'snippet',
+        testDuration: currentState.timedTest?.duration || 15,
+        snippetFilters: currentState.snippetFilters
+      };
+      
+      console.log('Requesting new practice snippet with options:', options);
+      socket.emit('practice:join', options);
+      
+      return currentState;
+    });
   };
 
   // Handle text input, enforce word locking
@@ -533,16 +566,20 @@ export const RaceProvider = ({ children }) => {
           }] : prev.results
         }));
         
-        // Send completion to server only for multiplayer races
-        if (socket && connected && raceState.type !== 'practice') {
+        // Send completion to server for multiplayer races OR timed practice tests
+        const isMultiplayer = raceState.type !== 'practice';
+        const isTimedPractice = raceState.type === 'practice' && raceState.snippet?.is_timed_test;
+        
+        if (socket && connected && (isMultiplayer || isTimedPractice)) {
           socket.emit('race:result', {
             code: raceState.code,
-            lobbyId: raceState.lobbyId,
-            snippetId: raceState.snippet?.id,
+            lobbyId: raceState.lobbyId, // Will be null for practice, that's okay
+            snippetId: raceState.snippet?.id, // Will be like 'timed-15' for timed tests
             wpm,
             accuracy,
             completion_time: elapsedSeconds
           });
+          console.log(`Emitted race:result for ${isMultiplayer ? 'multiplayer' : 'timed practice'} race ${raceState.code}`);
         }
       }
     }
@@ -559,7 +596,16 @@ export const RaceProvider = ({ children }) => {
       inProgress: false,
       completed: false,
       results: [],
-      manuallyStarted: false
+      manuallyStarted: false,
+      timedTest: {
+        enabled: false,
+        duration: 15
+      },
+      snippetFilters: {
+        difficulty: 'all',
+        type: 'all',
+        department: 'all'
+      }
     });
     
     setTypingState({

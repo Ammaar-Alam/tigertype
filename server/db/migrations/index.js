@@ -140,6 +140,29 @@ const MIGRATIONS = [
       
       console.log('Successfully updated fastest_wpm for all users');
     }
+  },
+  {
+    version: 4,
+    description: 'Add timed_leaderboard table',
+    up: async (client) => {
+      console.log('Running migration to add timed_leaderboard table...');
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS timed_leaderboard (
+          id SERIAL PRIMARY KEY,
+          user_id INT REFERENCES users(id) ON DELETE CASCADE,
+          duration INT NOT NULL CHECK (duration IN (15, 30, 60, 120)),
+          wpm DECIMAL(6, 2) NOT NULL,
+          accuracy DECIMAL(5, 2) NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_timed_leaderboard_user_id ON timed_leaderboard(user_id);
+        CREATE INDEX IF NOT EXISTS idx_timed_leaderboard_duration ON timed_leaderboard(duration);
+        CREATE INDEX IF NOT EXISTS idx_timed_leaderboard_wpm ON timed_leaderboard(wpm DESC);
+        CREATE INDEX IF NOT EXISTS idx_timed_leaderboard_created_at ON timed_leaderboard(created_at DESC);
+      `);
+      console.log('Successfully created timed_leaderboard table and indexes.');
+    }
   }
 ];
 

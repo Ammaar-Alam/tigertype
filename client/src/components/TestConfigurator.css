@@ -1,0 +1,270 @@
+/* [AI DISCLAIMER: THIS COMPONENT WAS DEBUGGED WITH THE HELP OF AI; IT MIGHT NOT BE FULLY ACCURATE */
+
+/* Horizontal layout configurator - slim bar */
+.test-configurator {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 15px;
+  padding: 8px 5%;
+  margin-bottom: 20px;
+  width: fit-content;
+  max-width: 90%;
+  margin-left: auto;
+  margin-right: auto;
+  background-color: var(--secondary-bg-color, #2c2c2c);
+  border-radius: 8px;
+  position: relative;
+  z-index: 10;
+  min-height: 40px;
+  overflow: hidden;
+}
+
+/* Mode selection group */
+.mode-selection {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+/* Styling for mode buttons */
+.mode-selection .config-button {
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--text-secondary-color, #888);
+  padding: 5px 10px;
+  background-color: transparent;
+  border-radius: 4px;
+  transition: color 0.2s ease;
+  white-space: nowrap;
+}
+.mode-selection .config-button:hover {
+  color: var(--text-color, #ccc);
+}
+.mode-selection .config-button.active {
+  color: var(--primary-color, #ff9900);
+  font-weight: 600;
+}
+
+/* Separator */
+.config-separator {
+  width: 1px;
+  height: 20px;
+  background-color: var(--border-color, #444);
+}
+
+/* Leaderboard Button Section in Configurator */
+.leaderboard-button-section {
+  display: flex;
+  align-items: center;
+}
+
+.leaderboard-button-section .config-button {
+  background-color: transparent;
+  color: var(--text-secondary-color, #888);
+}
+
+.leaderboard-button-section .config-button:hover {
+  color: var(--primary-color, #ff9900); /* Highlight on hover */
+}
+
+/* Container for conditional options - defines the area */
+.conditional-options-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex-grow: 1;
+  min-width: 250px;
+  height: 100%;
+  /* overflow: hidden; */ /* Remove overflow to prevent clipping absolute children */
+}
+
+/* Wrapper for options - absolute positioning for transition */
+.options-wrapper {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%) translateX(-20px);
+  width: auto;
+  display: flex;
+  align-items: center;
+  opacity: 0;
+  transition: opacity 0.25s ease-out, transform 0.25s ease-out;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.options-wrapper.visible {
+  opacity: 1;
+  transform: translateY(-50%) translateX(0);
+  pointer-events: auto;
+}
+
+/* Inner sections */
+.snippet-filters-inner, .duration-selection-inner {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 5px 0;
+}
+
+/* Sub-option buttons (duration, department) */
+.options-wrapper .config-button {
+  padding: 5px 10px;
+  border: none;
+  border-radius: 4px;
+  background-color: transparent;
+  color: var(--text-secondary-color, #888);
+  cursor: pointer;
+  transition: color 0.2s ease;
+  font-size: 0.95rem;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.options-wrapper .config-button:hover {
+  color: var(--text-color, #ccc);
+}
+.options-wrapper .config-button.active {
+  color: var(--primary-color, #ff9900);
+  font-weight: 600;
+}
+.options-wrapper .config-button.non-functional {
+  color: var(--text-disabled-color, #555);
+  cursor: not-allowed;
+}
+.options-wrapper .config-button.non-functional:hover {
+   color: var(--text-disabled-color, #555);
+}
+
+/* Icon sizes */
+.config-button i { /* General icon style */
+  line-height: 1;
+  margin-right: -2px;
+}
+.mode-selection .config-button i {
+  font-size: 1.1em;
+}
+.options-wrapper .config-button i,
+.options-wrapper .select-wrapper i {
+  font-size: 1em;
+}
+
+/* --- Dropdown Styles --- */
+.select-wrapper {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px; /* Reduced gap */
+  color: var(--text-secondary-color, #888);
+}
+.select-wrapper i {
+  margin-left: 5px; /* Add space before icon */
+}
+
+/* Pill style dropdown */
+.config-select {
+  background-color: var(--button-bg-color, #3a3a3a);
+  border: none; /* Remove border */
+  color: var(--text-secondary-color, #888);
+  font-size: 0.9rem;
+  font-weight: 500;
+  padding: 5px 12px;
+  cursor: pointer;
+  border-radius: 15px;
+  transition: color 0.2s ease, background-color 0.2s ease;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  line-height: 1;
+}
+.config-select:hover {
+  background-color: var(--button-hover-bg-color, #484848);
+  color: var(--text-color, #ddd);
+}
+.config-select.non-functional {
+  color: var(--text-disabled-color, #555);
+}
+.config-select.non-functional:hover {
+  color: var(--text-disabled-color, #555);
+  background-color: var(--button-bg-color, #3a3a3a);
+}
+.config-select:not([value=""]) {
+   color: var(--primary-color, #ff9900);
+   font-weight: 600;
+}
+.config-select.non-functional:not([value=""]) {
+   color: var(--text-disabled-color, #555);
+   font-weight: 500;
+}
+.config-select option {
+  background-color: var(--secondary-bg-color, #333);
+  color: var(--text-color, #ddd);
+}
+/* --- End Dropdown Styles --- */
+
+/* Inner Separator */
+.config-separator-inner {
+  width: 1px;
+  height: 16px;
+  background-color: var(--border-color-light, #383838);
+}
+
+/* Department Filter Animation */
+.department-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 0;
+  opacity: 0;
+  overflow: hidden;
+  transition: max-width 0.3s ease-out, opacity 0.3s ease-out, margin-left 0.3s ease-out;
+  vertical-align: middle;
+  margin-left: 0;
+  pointer-events: none;
+}
+.department-filter.visible {
+  max-width: 300px;
+  opacity: 1;
+  margin-left: 5px;
+  pointer-events: auto;
+}
+.department-filter .config-button {
+  white-space: nowrap;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .test-configurator {
+    width: 95%;
+    padding: 8px 10px; /* Adjust padding */
+    gap: 8px; /* Adjust gap */
+  }
+  .mode-selection {
+    gap: 8px;
+  }
+  .conditional-options-container {
+     min-width: 100px; /* Reduce min width */
+     flex-grow: 0; /* Don't grow excessively */
+  }
+  .snippet-filters-inner, .duration-selection-inner {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+  }
+  .config-select {
+    font-size: 0.85rem;
+    padding: 3px 8px;
+  }
+  .config-button {
+     font-size: 0.9rem;
+  }
+  .config-separator, .config-separator-inner {
+     /* Keep separators */
+  }
+  .department-filter {
+     margin-left: 0;
+     margin-top: 5px;
+  }
+}

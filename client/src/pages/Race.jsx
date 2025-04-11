@@ -6,6 +6,8 @@ import Typing from '../components/Typing';
 import Results from '../components/Results';
 import PlayerStatusBar from '../components/PlayerStatusBar';
 import Modal from '../components/Modal';
+import TestConfigurator from '../components/TestConfigurator';
+import Leaderboard from '../components/Leaderboard';
 import './Race.css';
 
 function Race() {
@@ -18,8 +20,18 @@ function Race() {
     setPlayerReady,
     resetRace,
     dismissInactivityWarning,
-    dismissInactivityKick
+    dismissInactivityKick,
+    setRaceState,
+    loadNewSnippet
   } = useRace();
+  
+  // Test configuration states
+  const [testMode, setTestMode] = useState('snippet');
+  const [testDuration, setTestDuration] = useState(15);
+  const [snippetDifficulty, setSnippetDifficulty] = useState('');
+  const [snippetType, setSnippetType] = useState('');
+  const [snippetDepartment, setSnippetDepartment] = useState('all');
+  const [showLeaderboard, setShowLeaderboard] = useState(false);
   
   // Handle back button
   const handleBack = () => {
@@ -31,6 +43,11 @@ function Race() {
   const handleReadyFromWarning = () => {
     dismissInactivityWarning();
     setPlayerReady();
+  };
+
+  // Toggle leaderboard modal
+  const toggleLeaderboard = () => {
+    setShowLeaderboard(prev => !prev);
   };
 
   return (
@@ -53,6 +70,18 @@ function Race() {
         onClose={dismissInactivityKick}
       />
       
+      {/* Leaderboard Modal */}
+      <Modal
+        isOpen={showLeaderboard}
+        onClose={toggleLeaderboard}
+        showCloseButton={true}
+        isLarge={true}
+      >
+        <Leaderboard 
+           defaultDuration={testDuration}
+        />
+      </Modal>
+      
       <div className="race-container">
         <div className="race-header-wrapper">
           <h1 className="race-title">{raceState.type === 'practice' ? 'Practice Mode' : 'Race'}</h1>
@@ -64,6 +93,25 @@ function Race() {
           )}
         </div>
         
+        {/* TestConfigurator - render only in practice mode */}
+        {raceState.type === 'practice' && (
+          <TestConfigurator 
+            testMode={testMode}
+            testDuration={testDuration}
+            snippetDifficulty={snippetDifficulty}
+            snippetType={snippetType}
+            snippetDepartment={snippetDepartment}
+            setTestMode={setTestMode}
+            setTestDuration={setTestDuration}
+            setSnippetDifficulty={setSnippetDifficulty}
+            setSnippetType={setSnippetType}
+            setSnippetDepartment={setSnippetDepartment}
+            setRaceState={setRaceState}
+            loadNewSnippet={loadNewSnippet}
+            onShowLeaderboard={toggleLeaderboard}
+          />
+        )}
+        
         <div className="race-content">
           <div className="race-info">
             <div className="race-content-container">
@@ -71,11 +119,23 @@ function Race() {
               {/* Show Typing if:
                   - It's practice mode OR
                   - It's multiplayer AND not completed */}
-              {(raceState.type === 'practice' || !raceState.completed) && <Typing />}
+              {(raceState.type === 'practice' || !raceState.completed) && (
+                <Typing 
+                  testMode={raceState.type === 'practice' ? testMode : null}
+                  testDuration={raceState.type === 'practice' ? testDuration : null}
+                  snippetDifficulty={raceState.type === 'practice' ? snippetDifficulty : null}
+                  snippetType={raceState.type === 'practice' ? snippetType : null}
+                  snippetDepartment={raceState.type === 'practice' ? snippetDepartment : null}
+                />
+              )}
 
               {/* Conditionally render Results */}
               {/* Show Results if race is completed */}
-              {raceState.completed && <Results />}
+              {raceState.completed && (
+                <Results 
+                  onShowLeaderboard={raceState.type === 'practice' ? toggleLeaderboard : null}
+                />
+              )}
             </div>
             
             <div className="player-status-container">

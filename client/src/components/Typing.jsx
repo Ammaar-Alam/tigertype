@@ -3,6 +3,7 @@ import { useRace } from '../context/RaceContext';
 import { useSocket } from '../context/SocketContext';
 import playKeySound from './Sound.jsx';
 import './Settings.css';
+import { useAuth } from '../context/AuthContext';
 import './Typing.css';
 
 // Typing Tips shown before race countdown start
@@ -28,9 +29,16 @@ const TYPING_TIPS = [
   "Zak Kincaid is an opp"
 ];
 
-function Typing() {
+function Typing({ 
+  testMode,
+  testDuration,
+  snippetDifficulty,
+  snippetType,
+  snippetDepartment
+}) {
   const { raceState, setRaceState, typingState, updateProgress, handleInput: raceHandleInput, loadNewSnippet } = useRace();
   const { socket } = useSocket();
+  const { user } = useAuth();
   const [input, setInput] = useState('');
   const inputRef = useRef(null);
   const [elapsedTime, setElapsedTime] = useState(0);
@@ -43,6 +51,49 @@ function Typing() {
   const tipContentRef = useRef(TYPING_TIPS[tipIndex]);
   const [isShaking, setIsShaking] = useState(false);
   const [showErrorMessage, setShowErrorMessage] = useState(false);
+  const tabActionInProgressRef = useRef(false);
+  const [displayedWpm, setDisplayedWpm] = useState(0);
+  
+  // Use testMode and testDuration for timed tests if provided
+  useEffect(() => {
+    if (raceState.type !== 'practice') return;
+    
+    // Mode-specific updates
+    if (testMode === 'timed') {
+      // Enable timed test mode and set duration
+      setRaceState(prev => ({
+        ...prev,
+        timedTest: {
+          enabled: true,
+          duration: testDuration || 15,
+        }
+      }));
+    } else if (testMode === 'snippet') {
+      // Disable timed test mode
+      setRaceState(prev => ({
+        ...prev,
+        timedTest: {
+          enabled: false,
+          duration: 15,
+        }
+      }));
+    }
+  }, [testMode, testDuration, raceState.type, setRaceState]);
+
+  // Use snippet filters if provided
+  useEffect(() => {
+    if (raceState.type === 'practice' && snippetType && snippetDifficulty) {
+      // Update snippet filters in race state
+      setRaceState(prev => ({
+        ...prev,
+        snippetFilters: {
+          difficulty: snippetDifficulty || 'all',
+          type: snippetType || 'all',
+          department: snippetDepartment || 'all'
+        }
+      }));
+    }
+  }, [snippetDifficulty, snippetType, snippetDepartment, raceState.type, setRaceState]);
   
   // Rotate through random tips every 5 seconds before race starts
   useEffect(() => {
@@ -112,6 +163,33 @@ function Typing() {
       }
     };
   }, [socket, raceState.type, raceState.inProgress, raceState.completed]);
+  
+  // Listen for text updates in timed mode
+  useEffect(() => {
+    if (!socket || !raceState.snippet?.is_timed_test) return;
+    
+    const handleTextUpdate = (data) => {
+      if (data.code === raceState.code) {
+        console.log('Received new words for timed test');
+        
+        // Update the snippet text with the new combined text
+        setRaceState(prev => ({
+          ...prev,
+          snippet: {
+            ...prev.snippet,
+            text: data.text
+          }
+        }));
+      }
+    };
+    
+    // Listen for text updates
+    socket.on('timed:text_update', handleTextUpdate);
+    
+    return () => {
+      socket.off('timed:text_update', handleTextUpdate);
+    };
+  }, [socket, raceState.code, raceState.snippet?.is_timed_test, setRaceState]);
   
   // Clean up on unmount
   useEffect(() => {
@@ -204,6 +282,7 @@ function Typing() {
   // Prevents the user from unfocusing the input box
   // Modify the unfocusing prevention effect so that you can click on settings,
   // then autofocuses after closing the settings modal or clicking outside of it
+
   useEffect(() => {
     const handleBodyClick = (e) => {
       const isSettingsClick = e.target.closest('.settings-modal') || 
@@ -231,11 +310,18 @@ function Typing() {
       // Tab: Load new snippet
       if (e.key === 'Tab') {
         e.preventDefault();
-        // Clear input immediately to prevent visual artifacts
+        
+        // IMPORTANT: Only execute this event on keydown, not keypress or other events
+        // This is the key fix to prevent duplicate lobbies without limiting spam ability
+        if (e.type !== 'keydown') return;
+        
+        // Clear input immediately
         setInput('');
         if (inputRef.current) {
           inputRef.current.value = '';
         }
+        
+        // Request new snippet
         loadNewSnippet();
       }
       
@@ -257,10 +343,10 @@ function Typing() {
       }
     };
 
-    // Add event listener for capturing all events
-    document.addEventListener('keydown', handleKeyDown);
+    // Add event listener for capturing ONLY the keydown event
+    document.addEventListener('keydown', handleKeyDown, { capture: true });
     return () => {
-      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('keydown', handleKeyDown, { capture: true });
     };
   }, [raceState.type, loadNewSnippet, setRaceState]);
 
@@ -273,13 +359,60 @@ function Typing() {
     // Only run the interval if the race is in progress AND not completed
     if (raceState.inProgress && raceState.startTime && !raceState.completed) {
       interval = setInterval(() => {
-        setElapsedTime(getElapsedTime());
+        const currentElapsedTime = getElapsedTime(); // Calculate elapsed time once
+        setElapsedTime(currentElapsedTime);
+        
+        // For timed tests, check if time is up
+        if (raceState.snippet?.is_timed_test && raceState.snippet?.duration) {
+          const duration = raceState.snippet.duration;
+          // Use the calculated elapsed time
+          const elapsed = currentElapsedTime; 
+          
+          // When time is up, mark race as completed AND EMIT RESULT
+          if (elapsed >= duration && !raceState.completed) {
+            console.log('Timed test completed due to time limit');
+
+            // Capture final WPM and Accuracy from typingState at the moment of completion
+            const finalWpm = typingState.wpm;
+            const finalAccuracy = typingState.accuracy;
+            
+            // Mark as completed locally
+            setRaceState(prev => ({
+              ...prev,
+              completed: true,
+              // Store results directly in state using captured values
+              results: [{
+                netid: user?.netid,
+                wpm: finalWpm,          
+                accuracy: finalAccuracy, 
+                completion_time: elapsed // Use final elapsed time
+              }]
+            }));
+
+            // --- EMIT race:result FOR TIMED TEST COMPLETION --- 
+            if (socket && raceState.code) { // Ensure socket and race code are available
+              socket.emit('race:result', {
+                code: raceState.code,
+                lobbyId: null, // Practice mode lobbyId is null/irrelevant here
+                snippetId: raceState.snippet?.id, // e.g., 'timed-15'
+                wpm: finalWpm, // Use captured WPM
+                accuracy: finalAccuracy, // Use captured Accuracy
+                completion_time: elapsed // Use final elapsed time
+              });
+              console.log('[Typing.jsx] Emitted race:result for timed test completion (time limit)');
+            } else {
+              console.warn('[Typing.jsx] Cannot emit race:result - socket or race code missing.');
+            }
+            // --- END EMIT --- 
+
+            // Clear the interval immediately after completion logic
+            clearInterval(interval);
+          }
+        }
       }, 1); // Update frequently for smoothness
     } else {
       // Clear interval if race stops or is completed
       if (interval) clearInterval(interval);
-      // If completed, ensure final time is calculated once? 
-      // Results component handles displaying final time
       // If not in progress and not completed, reset to 0
       if (!raceState.inProgress && !raceState.completed) {
          setElapsedTime(0);
@@ -287,32 +420,34 @@ function Typing() {
     }
   
     return () => {
-      clearInterval(interval);
+      if (interval) clearInterval(interval); // Ensure cleanup on unmount/dependency change
     };
-  // Add raceState.completed to dependency array
-  }, [raceState.inProgress, raceState.startTime, raceState.completed]);
+  // Add socket, raceState.code, user?.netid to dependency array
+  }, [raceState.inProgress, raceState.startTime, raceState.completed, raceState.snippet?.is_timed_test, raceState.snippet?.duration, typingState.wpm, typingState.accuracy, user?.netid, socket, raceState.code, setRaceState]); // Added socket, raceState.code, user?.netid, setRaceState
 
-  // Update WPM continuously - This useEffect might be redundant if WPM is calculated on completion
-  // Let's remove this or adjust it. The Results component displays final WPM.
-  // We'll keep the continuous WPM display logic but stop it on completion.
+  // Smoother update for WPM instead of constantly
   useEffect(() => {
-    let interval;
-    // Only run interval if in progress and not completed
-    if (raceState.inProgress && raceState.startTime && input.length > 0 && !raceState.completed) {
-      interval = setInterval(() => {
-        // No need to call raceHandleInput here, just update local display WPM if needed
-        // Or perhaps remove this continuous WPM calculation entirely if stats bar updates it
-      }, 300); 
+    let wpmInterval;
+    if (raceState.inProgress && raceState.startTime && !raceState.completed) {
+      wpmInterval = setInterval(() => {
+        const time = (Date.now() - raceState.startTime) / 1000;
+        const minutes = time / 60;
+        const charCount = typingState.position; // Use pos from typingState
+        const words = charCount / 5;
+        const currentWpm = minutes > 0 ? Math.round(words / minutes) : 0;
+        setDisplayedWpm(currentWpm);
+      }, 50); // Update every 100ms
     } else {
-       if (interval) clearInterval(interval); // Clear interval if race stops or completes
+      // Reset WPM display when race is not active
+      setDisplayedWpm(0);
     }
 
+    // Cleanup interval on unmount or when dependencies change
     return () => {
-      clearInterval(interval);
+      if (wpmInterval) clearInterval(wpmInterval);
     };
-  // Add raceState.completed to dependency array
-  }, [raceState.inProgress, raceState.startTime, input, raceState.completed]);
-  
+  }, [raceState.inProgress, raceState.startTime, raceState.completed, typingState.position]); // Include typingState.position
+
   // Handle typing input with word locking
   const handleComponentInput = (e) => {
     const newInput = e.target.value;
@@ -353,8 +488,18 @@ function Typing() {
     
     // Detect errors to trigger shake animation
     if (raceState.inProgress) {
-      const text = raceState.snippet?.text || '';
-
+      const text = raceState.snippet?.text || '';      
+      // For timed tests, check if we need to get more words
+      // Request when the user has typed about X% of the way through the text
+      if (raceState.snippet?.is_timed_test && 
+          newInput.length > text.length * 0.75 && 
+          !raceState.completed) {
+        // Request fewer words to be appended to the current text
+        socket.emit('timed:more_words', {
+          code: raceState.code,
+          wordCount: 15 // Request 1 more words
+        });
+      }
       // Prevent typing past the end of the snippet
       if (newInput.length >= text.length + 1) {
         return;
@@ -420,28 +565,96 @@ function Typing() {
     if (!raceState.snippet) return null;
     
     const text = raceState.snippet.text;
-    const components = [];
-    let hasEncounteredError = false;
     
-    for (let i = 0; i < text.length; i++) {
-      if (i < input.length) {
-        if (input[i] === text[i] && !hasEncounteredError) {
-          components.push(<span key={i} className="correct">{text[i]}</span>);
-        } else {
-          // Once an error is encountered, mark this and all subsequent typed chars as incorrect
-          hasEncounteredError = true;
-          components.push(<span key={i} className="incorrect">{text[i]}</span>);
+    // Split text by words, maintaining spaces between them
+    const renderNonBreakingText = () => {
+      const words = text.split(' ');
+      const components = [];
+      let charIndex = 0;
+      let hasEncounteredError = false;
+      
+      words.forEach((word, wordIndex) => {
+        // For each word, render each character
+        const wordChars = [];
+        for (let i = 0; i < word.length; i++) {
+          const charPos = charIndex + i;
+          
+          if (charPos < input.length) {
+            if (input[charPos] === text[charPos] && !hasEncounteredError) {
+              wordChars.push(<span key={`${wordIndex}-${i}`} className="correct">{word[i]}</span>);
+            } else {
+              hasEncounteredError = true;
+              wordChars.push(<span key={`${wordIndex}-${i}`} className="incorrect">{word[i]}</span>);
+            }
+          } else if (charPos === input.length) {
+            wordChars.push(<span key={`${wordIndex}-${i}`} className="current">{word[i]}</span>);
+          } else {
+            wordChars.push(<span key={`${wordIndex}-${i}`}>{word[i]}</span>);
+          }
         }
-      } else if (i === input.length) {
-        components.push(<span key={i} className="current">{text[i]}</span>);
-      } else {
-        components.push(<span key={i}>{text[i]}</span>);
-      }
-    }
+        
+        // Add the word with non-breaking wrapper
+        components.push(
+          <span key={`word-${wordIndex}`} style={{display: 'inline-block', whiteSpace: 'nowrap'}}>
+            {wordChars}
+          </span>
+        );
+        
+        // Add space after each word (except the last)
+        if (wordIndex < words.length - 1) {
+          const spacePos = charIndex + word.length;
+          
+          if (spacePos < input.length) {
+            if (input[spacePos] === ' ' && !hasEncounteredError) {
+              components.push(<span key={`space-${wordIndex}`} className="correct"> </span>);
+            } else {
+              hasEncounteredError = true;
+              components.push(<span key={`space-${wordIndex}`} className="incorrect"> </span>);
+            }
+          } else if (spacePos === input.length) {
+            components.push(<span key={`space-${wordIndex}`} className="current"> </span>);
+          } else {
+            components.push(<span key={`space-${wordIndex}`}> </span>);
+          }
+          
+          charIndex += word.length + 1; // +1 for the space
+        } else {
+          charIndex += word.length;
+        }
+      });
+      
+      return components;
+    };
     
-    return components;
+    return renderNonBreakingText();
   };
     
+  // Auto-scroll to keep cursor in view
+  useEffect(() => {
+    if (raceState.inProgress && input.length > 0) {
+      // Find the current element (the character the user is about to type)
+      const currentElement = document.querySelector('.current');
+      if (currentElement) {
+        // Get the container
+        const container = document.querySelector('.snippet-display');
+        if (container) {
+          // Calculate position to keep the current element in the middle of the viewport
+          const containerRect = container.getBoundingClientRect();
+          const currentRect = currentElement.getBoundingClientRect();
+          
+          // Get the relative position within the container
+          const relativeTop = currentRect.top - containerRect.top;
+          
+          // Check if the element is getting close to the bottom of the viewport
+          if (relativeTop > containerRect.height * 0.6) {
+            // Scroll to keep the current element at 1/3 of the container height
+            container.scrollTop = container.scrollTop + (relativeTop - containerRect.height / 3);
+          }
+        }
+      }
+    }
+  }, [input.length, raceState.inProgress]);
+  
   // Render stats placeholder (before practice starts)
   const getStatsPlaceholder = () => {
     // Restore original placeholder structure and class name
@@ -469,21 +682,25 @@ function Typing() {
     //(Results component will show final stats)
     if (raceState.completed) return null;
     
-    // Calculate live WPM
-    const time = elapsedTime || getElapsedTime();
-    const minutes = time / 60;
-    const charCount = typingState.position;
-    const words = charCount / 5;
-    const wpm = minutes > 0 ? words / minutes : 0;
-    
     // Use accuracy directly from typingState which is now calculated properly
     const accuracy = typingState.accuracy;
+    
+    // For timed tests, show time remaining instead of elapsed time
+    let timeDisplay;
+    const time = elapsedTime || getElapsedTime(); // Keep calculating elapsed time for display
+    if (raceState.snippet?.is_timed_test && raceState.snippet?.duration) {
+      const timeRemaining = Math.max(0, raceState.snippet.duration - time);
+      timeDisplay = `${timeRemaining.toFixed(2)}s left`;
+    } else {
+      timeDisplay = `${time.toFixed(2)}s`;
+    }
       
     return (
       <div className="stats">
         <div className="stat-item">
           <span className="stat-label">WPM</span>
-          <span className="stat-value">{wpm.toFixed(0)}</span>
+          {/* Use the smoothed displayedWpm state */}
+          <span className="stat-value">{displayedWpm}</span> 
         </div>
         <div className="stat-item">
           <span className="stat-label">Accuracy</span>
@@ -491,7 +708,7 @@ function Typing() {
         </div>
         <div className="stat-item">
           <span className="stat-label">Time</span>
-          <span className="stat-value">{elapsedTime.toFixed(2)}s</span>
+          <span className="stat-value">{timeDisplay}</span>
         </div>
       </div>
     );
@@ -559,39 +776,40 @@ function Typing() {
   
   return (
     <>
-    <div className="stats-container">
-      {getStatsContent()}
-    </div>
-    
-    {/* Only show typing area (snippet + input) if race is NOT completed */}
-    {!raceState.completed && (
-        <div className="typing-area">
-          <div className={`snippet-display ${isShaking ? 'shake-animation' : ''}`}>
-            {showErrorMessage && (
-              <div className="error-message">Fix your mistake to continue</div>
-            )}
-            {getHighlightedText()}
+      <div className="stats-container">
+        {getStatsContent()}
+      </div>
+      
+      {/* Only show typing area (snippet + input) if race is NOT completed */}
+      {!raceState.completed && (
+          <div className="typing-area">
+            <div className={`snippet-display ${isShaking ? 'shake-animation' : ''}`}>
+              {/* Error message moved inside snippet-display */}
+              {showErrorMessage && (
+                <div className="error-message">
+                  Fix your mistake to continue
+                </div>
+              )}
+              {getHighlightedText()}
+            </div>
+            <div className="typing-input-container">
+              <input
+                ref={inputRef}
+                type="text"
+                value={input}
+                onChange={handleComponentInput}
+                onPaste={handlePaste}
+                disabled={(raceState.type !== 'practice' && !raceState.inProgress) || (raceState.type !== 'practice' && typingState.completed)}
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck="false"
+              />
+            </div>
           </div>
-          <div className="typing-input-container">
-            <input
-              ref={inputRef}
-              type="text"
-              value={input}
-              onChange={handleComponentInput}
-              onPaste={handlePaste}
-              // Input is disabled based on non-practice conditions OR if practice is completed (but still focusable)
-              disabled={(raceState.type !== 'practice' && !raceState.inProgress) || (raceState.type !== 'practice' && typingState.completed)}
-              autoComplete="off"
-              autoCorrect="off"
-              autoCapitalize="off"
-              spellCheck="false"
-            />
-          </div>
-        </div>
-    )}
+      )}
 
-    {/* Tooltip is rendered conditionally inside its function based on completion state */}
-    {renderPracticeTooltip()}
+      {renderPracticeTooltip()}
     </>
   );
 }

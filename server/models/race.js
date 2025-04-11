@@ -14,6 +14,18 @@ const Race = {
     try {
       const code = this.generateCode();
       
+      // For practice mode with timed tests, snippetId can be null
+      if (type === 'practice' && !snippetId) {
+        const result = await db.query(
+          `INSERT INTO lobbies (code, type, status)
+           VALUES ($1, $2, 'waiting')
+           RETURNING *`,
+          [code, type]
+        );
+        
+        return result.rows[0];
+      }
+      
       const result = await db.query(
         `INSERT INTO lobbies (code, type, status, snippet_id)
          VALUES ($1, $2, 'waiting', $3)
