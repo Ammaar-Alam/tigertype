@@ -243,12 +243,12 @@
   font-size: 0.9rem;
   font-weight: bold;
   pointer-events: none;
-  animation: fadeInOut 2s forwards;
+  animation: errorFadeInOut 2s forwards;
   z-index: 100;
   box-shadow: 0 2px 10px rgba(255, 65, 47, 0.5);
 }
 
-@keyframes fadeInOut {
+@keyframes errorFadeInOut {
   0% { opacity: 0; transform: translate(-50%, 5px); }
   10% { opacity: 1; transform: translate(-50%, 0); }
   80% { opacity: 1; transform: translate(-50%, 0); }
