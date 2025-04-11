@@ -266,13 +266,23 @@ const User = {
       const user = await User.findById(userId); 
       if (!user) return;
 
-      // Only update stats if the result is from a regular race (not timed)
-      if (!isTimed) {
-        const currentAvgWpm = parseFloat(user.avg_wpm) || 0;
-        const currentAvgAcc = parseFloat(user.avg_accuracy) || 0;
-        const racesCompleted = user.races_completed || 0;
+      const currentAvgWpm = parseFloat(user.avg_wpm) || 0;
+      const currentAvgAcc = parseFloat(user.avg_accuracy) || 0;
+      const racesCompleted = user.races_completed || 0;
 
-        // Calculate new averages
+      if (isTimed) {
+        // For timed tests, update WPM and accuracy but not races completed
+        // Calculate new averages using existing races completed count
+        const newAvgWpm = ((currentAvgWpm * racesCompleted) + wpm) / (racesCompleted + 1);
+        const newAvgAcc = ((currentAvgAcc * racesCompleted) + accuracy) / (racesCompleted + 1);
+
+        await pool.query(
+          'UPDATE users SET avg_wpm = $1, avg_accuracy = $2 WHERE id = $3',
+          [newAvgWpm.toFixed(2), newAvgAcc.toFixed(2), userId]
+        );
+        console.log(`Updated timed test stats for user ${userId}: WPM=${newAvgWpm.toFixed(2)}, Acc=${newAvgAcc.toFixed(2)}`);
+      } else {
+        // For regular races, update everything including races completed
         const newAvgWpm = ((currentAvgWpm * racesCompleted) + wpm) / (racesCompleted + 1);
         const newAvgAcc = ((currentAvgAcc * racesCompleted) + accuracy) / (racesCompleted + 1);
         const newRacesCompleted = racesCompleted + 1;
@@ -281,9 +291,7 @@ const User = {
           'UPDATE users SET avg_wpm = $1, avg_accuracy = $2, races_completed = $3 WHERE id = $4',
           [newAvgWpm.toFixed(2), newAvgAcc.toFixed(2), newRacesCompleted, userId]
         );
-        console.log(`Updated regular stats for user ${userId}`);
-      } else {
-        console.log(`Skipping regular stats update for user ${userId} (timed test)`);
+        console.log(`Updated regular stats for user ${userId}: WPM=${newAvgWpm.toFixed(2)}, Acc=${newAvgAcc.toFixed(2)}, Races=${newRacesCompleted}`);
       }
     } catch (error) {
       console.error(`Error updating stats for user ${userId}:`, error);

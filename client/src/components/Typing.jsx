@@ -1,3 +1,5 @@
+// [AI DISCLAIMER: AI was used to help debug socket emit for timed tests; lines 394-408]
+
 import { useState, useEffect, useRef } from 'react';
 import { useRace } from '../context/RaceContext';
 import { useSocket } from '../context/SocketContext';
@@ -422,18 +424,18 @@ function Typing({
             }));
 
             // --- EMIT race:result FOR TIMED TEST COMPLETION --- 
-            if (socket && raceState.code) { // Ensure socket and race code are available
+            if (socket && raceState.code && raceState.snippet?.is_timed_test) { // Only emit for timed tests
               socket.emit('race:result', {
                 code: raceState.code,
                 lobbyId: null, // Practice mode lobbyId is null/irrelevant here
-                snippetId: raceState.snippet?.id, // e.g., 'timed-15'
+                snippetId: raceState.snippet?.id, // ex: 'timed-15'
                 wpm: finalWpm, // Use captured WPM
                 accuracy: finalAccuracy, // Use captured Accuracy
                 completion_time: elapsed // Use final elapsed time
               });
               console.log('[Typing.jsx] Emitted race:result for timed test completion (time limit)');
             } else {
-              console.warn('[Typing.jsx] Cannot emit race:result - socket or race code missing.');
+              console.warn('[Typing.jsx] Cannot emit race:result - socket / race code missing, or not a timed test.');
             }
             // --- END EMIT --- 
 

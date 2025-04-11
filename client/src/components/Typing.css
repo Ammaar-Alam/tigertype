@@ -139,7 +139,7 @@
   white-space: pre-wrap;
   position: relative;
   min-height: 10vh;
-  max-height: 50vh;
+  max-height: 25vh;
   overflow-y: auto;
   overflow-x: hidden;
   letter-spacing: 1px;
@@ -265,10 +265,10 @@
 
 .current::before {
   visibility: var(--line-cursor);
-  position: fixed;
+  position: absolute;
   content: "|";
   transform: scale(1.8, 1);
-  color: var(--princeton-orange);
+  color: var(--princeton-orange)!important;
   right: 0.4rem;
   animation: slide 0.05s ease-out;
 }

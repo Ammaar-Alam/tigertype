@@ -1,3 +1,4 @@
+// [AI-GENERATED FILE: Used AI to copy-paste the list of common words from the source]
 // Source: https://gist.github.com/deekayen/4148741
 export const commonWords = [
   "the", "of", "to", "and", "a", "in", "is", "it", "you", "that", 
