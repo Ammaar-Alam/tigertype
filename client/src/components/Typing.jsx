@@ -285,22 +285,54 @@ function Typing({
 
   useEffect(() => {
     const handleBodyClick = (e) => {
-      const isSettingsClick = e.target.closest('.settings-modal') || 
-                            e.target.closest('.settings-icon');
+      // Check if this is something we should allow to be focused
+      const isSettingsClick = e.target.closest('.settings-modal') ||
+                              e.target.closest('.settings-icon');
 
-      // Force focus back when clicking close button or outside settings
-      if (e.target.closest('.close-button') || 
-          (!isSettingsClick && inputRef.current)) {
+      // Check if it's a select dropdown or its options
+      const isSelectClick = e.target.tagName === 'SELECT' ||
+                            e.target.tagName === 'OPTION' ||
+                            e.target.closest('select') ||
+                            e.target.closest('.config-select');
+
+      // Special handling for close button
+      if (e.target.closest('.close-button')) {
+        setTimeout(() => {
+          inputRef.current.focus();
+        }, 10);
+        return;
+      }
+
+      // Otherwise, force focus back to input if appropriate
+      if (!isSettingsClick && !isSelectClick) {
         inputRef.current.focus();
       }
     };
 
+    // Add event listener for select change to refocus after selection
+    const handleSelectChange = () => {
+      setTimeout(() => {
+        if (inputRef.current) {
+          inputRef.current.focus();
+        }
+      }, 10);
+    };
+
+    // Add listeners
     document.body.addEventListener('click', handleBodyClick);
+    const selectElements = document.querySelectorAll('select');
+    selectElements.forEach(select => {
+      select.addEventListener('change', handleSelectChange);
+    });
 
     return () => {
       document.body.removeEventListener('click', handleBodyClick);
+      const selectElements = document.querySelectorAll('select');
+      selectElements.forEach(select => {
+        select.removeEventListener('change', handleSelectChange);
+      });
     };
-  }, [raceState.inProgress]);
+  }, []); 
 
   // Handle keyboard shortcuts for practice mode
   useEffect(() => {
