@@ -16,7 +16,6 @@ import Leaderboard from './components/Leaderboard';
 // Lazy-loaded pages for code splitting
 const Landing = lazy(() => import('./pages/Landing'));
 const Home = lazy(() => import('./pages/Home'));
-const ProfilePage = lazy(() => import('./pages/ProfilePage'));
 const Race = lazy(() => import('./pages/Race'));
 const AboutUs = lazy(() => import('./pages/AboutUs')); // Add lazy import for AboutUs
 
@@ -82,11 +81,6 @@ function AppRoutes() {
           <Route path="/home" element={
             <ProtectedRoute>
               <Home />
-            </ProtectedRoute>
-          } />
-          <Route path="/profile" element={
-            <ProtectedRoute>
-              <ProfilePage />
             </ProtectedRoute>
           } />
           <Route path="/race" element={

@@ -1,13 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { Link, useNavigate } from 'react-router-dom';
-import './ProfilePage.css';
+import './ProfileModal.css';
 import defaultProfileImage from '../assets/icons/default-profile.svg'
-import userEdit from '../assets/icons/edit.png'
 
-function ProfilePage() {
+function ProfileModal({isOpen, onClose}) {
   const { user, loading, setUser } = useAuth();
-  const navigate = useNavigate();
   const [bio, setBio] = useState('');
   const [isSavingBio, setIsSavingBio] = useState(false);
   const [bioMessage, setBioMessage] = useState('');
@@ -79,10 +76,6 @@ function ProfilePage() {
   // Format large numbers with commas
   const formatNumber = (num) => {
     return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-  };
-
-  const handleBack = () => {
-    navigate('/home');
   };
 
   const handleBioChange = (e) => {
@@ -257,124 +250,125 @@ function ProfilePage() {
   const avatarUrl = getCacheBustedImageUrl(user?.avatar_url);
 
   return (
-    <div className="profile-container">
+    <div className= "profile-overlay">
+      <div className="profile-container">
 
-      <div className="back-button-container">
-        <button className="back-button" onClick={handleBack}>
-          <span>⟵</span> Back
-        </button>
-      </div>
+        <div className="back-button-container">
+          <button className="back-button" onClick={onClose}>
+            <span>⟵</span> Back
+          </button>
+        </div>
 
-      <div className="profile-header">
-        <h1>Profile</h1>
+        <div className="profile-header">
+          <h1>Profile</h1>
 
-        <div className="profile-page-info">
-          <div className="profile-page-image">
-            <input 
-              type="image" 
-              src={!imageError ? avatarUrl : defaultProfileImage}
-              alt="Profile" 
-              onClick={imageError && user?.avatar_url ? openImageInNewTab : handleAvatarClick}
-              className={isUploading ? "uploading" : ""}
-              onError={handleImageError}
-            />
-            <input 
-              type="file" 
-              ref={fileInputRef} 
-              onChange={handleFileChange} 
-              style={{ display: 'none' }} 
-              accept="image/jpeg, image/png, image/gif, image/webp"
-            />
-            {isUploading && <div className="upload-overlay">Uploading...</div>}
-            {uploadError && <div className="profile-error-message">{uploadError}</div>}
-            {uploadSuccess && <div className="success-message">{uploadSuccess}</div>}
-          </div>
-
-          <div className="written-info">
-            <div className="username-info">
-              <h2>{user?.netid || 'Guest'}</h2>
-              <input className="profile-user-edit" type='image' alt='edit pencil' src={userEdit}></input>
+          <div className="profile-page-info">
+            <div className="profile-page-image">
+              <input 
+                type="image" 
+                src={!imageError ? avatarUrl : defaultProfileImage}
+                alt="Profile" 
+                onClick={imageError && user?.avatar_url ? openImageInNewTab : handleAvatarClick}
+                className={isUploading ? "uploading" : ""}
+                onError={handleImageError}
+              />
+              <input 
+                type="file" 
+                ref={fileInputRef} 
+                onChange={handleFileChange} 
+                style={{ display: 'none' }} 
+                accept="image/jpeg, image/png, image/gif, image/webp"
+              />
+              {isUploading && <div className="upload-overlay">Uploading...</div>}
+              {uploadError && <div className="profile-error-message">{uploadError}</div>}
+              {uploadSuccess && <div className="success-message">{uploadSuccess}</div>}
             </div>
-            <textarea 
-              className="biography" 
-              placeholder='Write a little about yourself!'
-              value={bio}
-              onChange={handleBioChange}
-            ></textarea>
-            <div className="bio-controls">
-              <button 
-                className="save-bio-btn" 
-                onClick={saveBio}
-                disabled={isSavingBio}
-              >
-                {isSavingBio ? 'Saving...' : 'Save Bio'}
-              </button>
-              {bioMessage && <span className={bioMessage.includes('Failed') ? 'bio-error' : 'bio-success'}>{bioMessage}</span>}
+
+            <div className="written-info">
+              <div className="username-info">
+                <h2>{user?.netid || 'Guest'}</h2>
+              </div>
+              <textarea 
+                className="biography" 
+                placeholder='Write a little about yourself!'
+                value={bio}
+                onChange={handleBioChange}
+              ></textarea>
+              <div className="bio-controls">
+                <button 
+                  className="save-bio-btn" 
+                  onClick={saveBio}
+                  disabled={isSavingBio}
+                >
+                  {isSavingBio ? 'Saving...' : 'Save Bio'}
+                </button>
+                {bioMessage && <span className={bioMessage.includes('Failed') ? 'bio-error' : 'bio-success'}>{bioMessage}</span>}
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
 
-      {/* We may want to make stats be dynamic (i.e. golden color) if they're exceptional */}
-      <div className="profile-stats">
-        <h2>Your Stats</h2>
-        {!user ? (
-          <div className="stats-loading">No stats available</div>
-        ) : (
-          <div className="stats-grid">
-            <div className="stat-card">
-              <h3>Races Completed</h3>
-              <p>{parseNumericValue(user.races_completed) || 0}</p>
+        {/* We may want to make stats be dynamic (i.e. golden color) if they're exceptional */}
+        <div className="profile-stats">
+          <h2>Your Stats</h2>
+          {!user ? (
+            <div className="stats-loading">No stats available</div>
+          ) : (
+            <div className="stats-grid">
+              <div className="stat-card">
+                <h3>Races Completed</h3>
+                <p>{parseNumericValue(user.races_completed) || 0}</p>
+              </div>
+              <div className="stat-card">
+                <h3>Average WPM</h3>
+                <p>{parseNumericValue(user.avg_wpm).toFixed(2)}</p>
+              </div>
+              <div className="stat-card">
+                <h3>Average Accuracy</h3>
+                <p>{parseNumericValue(user.avg_accuracy).toFixed(2)}%</p>
+              </div>
+              <div className="stat-card">
+                <h3>Fastest Speed</h3>
+                <p>{parseNumericValue(user.fastest_wpm).toFixed(2)} WPM</p>
+              </div>
             </div>
-            <div className="stat-card">
-              <h3>Average WPM</h3>
-              <p>{parseNumericValue(user.avg_wpm).toFixed(2)}</p>
-            </div>
-            <div className="stat-card">
-              <h3>Average Accuracy</h3>
-              <p>{parseNumericValue(user.avg_accuracy).toFixed(2)}%</p>
-            </div>
-            <div className="stat-card">
-              <h3>Fastest Speed</h3>
-              <p>{parseNumericValue(user.fastest_wpm).toFixed(2)} WPM</p>
-            </div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
 
-      {/* Detailed Stats Section */}
-      <div className="profile-stats">
-        <h2>Detailed Stats</h2>
-        {loadingStats ? (
-          <div className="stats-loading">Loading detailed stats...</div>
-        ) : !detailedStats ? (
-          <div className="stats-loading">No detailed stats available</div>
-        ) : (
-          <div className="stats-grid">
-            <div className="stat-card">
-              <h3>Total Tests Started</h3>
-              <p>{formatNumber(detailedStats.sessions_started)}</p>
+        {/* Detailed Stats Section */}
+        <div className="profile-stats">
+          <h2>Detailed Stats</h2>
+          {loadingStats ? (
+            <div className="stats-loading">Loading detailed stats...</div>
+          ) : !detailedStats ? (
+            <div className="stats-loading">No detailed stats available</div>
+          ) : (
+            <div className="stats-grid">
+              <div className="stat-card">
+                <h3>Total Tests Started</h3>
+                <p>{formatNumber(detailedStats.sessions_started)}</p>
+              </div>
+              <div className="stat-card">
+                <h3>Sessions Completed</h3>
+                <p>{formatNumber(detailedStats.sessions_completed)}</p>
+              </div>
+              <div className="stat-card">
+                <h3>Total Words Typed</h3>
+                <p>{formatNumber(detailedStats.words_typed)}</p>
+              </div>
+              <div className="stat-card">
+                <h3>Completion Rate</h3>
+                <p>{detailedStats.sessions_started > 0 
+                  ? (detailedStats.sessions_completed / detailedStats.sessions_started * 100).toFixed(1) 
+                  : 0}%</p>
+              </div>
             </div>
-            <div className="stat-card">
-              <h3>Sessions Completed</h3>
-              <p>{formatNumber(detailedStats.sessions_completed)}</p>
-            </div>
-            <div className="stat-card">
-              <h3>Total Words Typed</h3>
-              <p>{formatNumber(detailedStats.words_typed)}</p>
-            </div>
-            <div className="stat-card">
-              <h3>Completion Rate</h3>
-              <p>{detailedStats.sessions_started > 0 
-                ? (detailedStats.sessions_completed / detailedStats.sessions_started * 100).toFixed(1) 
-                : 0}%</p>
-            </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
-export default ProfilePage;
+export default ProfileModal;

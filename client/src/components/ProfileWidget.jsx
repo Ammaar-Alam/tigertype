@@ -1,20 +1,31 @@
-import { Link } from 'react-router-dom';
 import PropTypes from 'prop-types';
+import ProfileModal from './ProfileModal.jsx';
+import { useState } from 'react';
 import './ProfileWidget.css';
 
 // Default profile image
 import defaultProfileImage from '../assets/icons/default-profile.svg';
 
 function ProfileWidget({ user }) {
+  const [showProfileModal, setShowProfileModal] = useState(false);
+
   // Parse numeric value to handle string or number
   const parseNumericValue = (value) => {
     if (value === null || value === undefined) return 0;
     return typeof value === 'string' ? parseFloat(value) : value;
   };
-  
+
+  const openProfileModal = () => {
+    setShowProfileModal(true);
+  };
+
+  const closeProfileModal = () => {
+    setShowProfileModal(false);
+  };
+
   return (
-    <Link to="/profile" className="profile-widget-link">
-      <div className="profile-widget">
+    <>
+      <div className="profile-widget" onClick={openProfileModal}>
         <div className="profile-image">
           <img 
             src={ user?.avatar_url ? user.avatar_url : defaultProfileImage } 
@@ -31,7 +42,11 @@ function ProfileWidget({ user }) {
           </div>
         </div>
       </div>
-    </Link>
+      {showProfileModal && (<ProfileModal 
+      isOpen={showProfileModal} 
+      onClose={closeProfileModal} 
+      />)}
+    </>
   );
 }
 

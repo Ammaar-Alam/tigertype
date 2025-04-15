@@ -1,7 +1,20 @@
+.profile-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(5px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
 .profile-container {
   max-width: 800px;
-  position: relative;
-  top: 4rem;
+  position: absolute;
   margin: 2rem auto;
   padding: 2rem;
   background-color: var(--secondary-color);
@@ -9,6 +22,8 @@
   border-style: solid;
   border-radius: 30px;
   border-color: #F58025;
+  align-items: center;
+  scale: 70%;
 }
 
 .loading-container {
