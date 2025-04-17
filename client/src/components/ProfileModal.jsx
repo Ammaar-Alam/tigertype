@@ -262,6 +262,7 @@ function ProfileModal({isOpen, onClose}) {
         <div className="profile-header">
           <h1>Profile</h1>
 
+          <div className="profile-header-info">
           <div className="profile-page-info">
             <div className="profile-page-image">
               <input 
@@ -288,8 +289,12 @@ function ProfileModal({isOpen, onClose}) {
               <div className="username-info">
                 <h2>{user?.netid || 'Guest'}</h2>
               </div>
-              <textarea 
-                className="biography" 
+              <select value='Title'></select>
+            </div>
+          </div>
+          <div className='biography'>
+          <textarea 
+                className="biography-input" 
                 placeholder='Write a little about yourself!'
                 value={bio}
                 onChange={handleBioChange}
@@ -304,8 +309,8 @@ function ProfileModal({isOpen, onClose}) {
                 </button>
                 {bioMessage && <span className={bioMessage.includes('Failed') ? 'bio-error' : 'bio-success'}>{bioMessage}</span>}
               </div>
-            </div>
-          </div>
+              </div>
+              </div>
         </div>
 
 
