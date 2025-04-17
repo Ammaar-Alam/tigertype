@@ -319,7 +319,65 @@ function ProfileModal({ isOpen, onClose }) {
               <h2>Match History</h2>
 
               <div className="match-history-list">
-                
+                <div className="match-history-card">
+                  <div className="match-date">
+                    Apr 15, 2025
+                  </div>
+                  <div className="match-details">
+                    <div className="match-type">
+                      Practice
+                    </div>
+                    <div className="match-stats">
+                      <span>76 WPM </span>
+                      <span>96.8% Acc</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="match-history-card">
+                  <div className="match-date">
+                    Apr 15, 2025
+                  </div>
+                  <div className="match-details">
+                    <div className="match-type">
+                      Practice
+                    </div>
+                    <div className="match-stats">
+                      <span>76 WPM </span>
+                      <span>96.8% Acc</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="match-history-card">
+                  <div className="match-date">
+                    Apr 15, 2025
+                  </div>
+                  <div className="match-details">
+                    <div className="match-type">
+                      Practice
+                    </div>
+                    <div className="match-stats">
+                      <span>76 WPM </span>
+                      <span>96.8% Acc</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="match-history-card">
+                  <div className="match-date">
+                    Apr 15, 2025
+                  </div>
+                  <div className="match-details">
+                    <div className="match-type">
+                      Practice
+                    </div>
+                    <div className="match-stats">
+                      <span>76 WPM </span>
+                      <span>96.8% Acc</span>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
