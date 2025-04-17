@@ -190,6 +190,44 @@
   justify-content: space-between;
 }
 
+.title-select {
+  height: 2rem;
+  font-size: 20px;
+  margin-bottom: 1rem;
+}
+
+.user-badges h3{
+  text-align: left;
+}
+
+.badges-container {
+  display: flex;
+  flex-direction: row;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.badge-item {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background-color: var(--secondary-color);
+  border: 2px solid;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.badge-item:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.2);
+}
+
+.badge-icon {
+  font-size: 1.5rem;
+}
+
 .profile-user-edit {
   width: 1.875rem;
   height: 1.875rem;
@@ -199,6 +237,8 @@
 .biography {
   padding-top: 2rem;
   padding-right: 2rem;
+  display: flex;
+  flex-direction: column;
 }
 
 .biography-input {
@@ -206,14 +246,14 @@
   border-radius: 15px;
   padding: 10px;
   width: 100%;
-  height: 200px;
+  height: 218px;
   background-color: var(--hover-color);
   color: #f8f9fa;
   border: 1px solid #444;
   font-family: inherit;
   font-size: 1rem;
   margin-bottom: 10px;
-
+  flex-grow: 1;
 }
 
 .biography-input::placeholder {
@@ -229,8 +269,8 @@
 .bio-controls {
   display: flex;
   align-items: center;
-  margin-bottom: 10px;
   flex-direction: row-reverse;
+  margin-top: 1rem;
 }
 
 .save-bio-btn {

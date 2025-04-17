@@ -16,6 +16,13 @@ function ProfileModal({ isOpen, onClose }) {
   const fileInputRef = useRef(null);
   const [detailedStats, setDetailedStats] = useState(null);
   const [loadingStats, setLoadingStats] = useState(true);
+  const [selectedTitle, setSelectedTitle] =useState('');
+
+  const [badges, setBadges] = useState([
+    { id: 1, name: 'Placeholder 1', icon: '🔥', color: '#ff7700' },
+    { id: 2, name: 'Placeholder 2', icon: '🎯', color: '#00aaff' },
+    { id: 3, name: 'Placeholder 3', icon: '🐯', color: '#f58025' }
+  ]);
 
   // Function to add cache busting parameter to image URL (this is so scuffed, even if it works pls refine ammaar)
   const getCacheBustedImageUrl = (url) => {
@@ -291,7 +298,33 @@ function ProfileModal({ isOpen, onClose }) {
                   <div className="username-info">
                     <h2>{user?.netid || 'Guest'}</h2>
                   </div>
-                  <select value='Title'></select>
+                  <select 
+                    value={selectedTitle} 
+                    onChange={(e) => setSelectedTitle(e.target.value)}
+                    className="title-select"
+                  >
+                    <option value="" disabled hidden>Title</option>
+                    <option value="placeholder-1">Placeholder 1</option>
+                    <option value="placeholder-2">Placeholder 2</option>
+                    <option value="placeholder-3">Placeholder 3</option>
+                    <option value="placeholder-4">Placeholder 4</option>
+                  </select>
+
+                <div className="user-badges">
+                  <h3>Badges</h3>
+                  <div className="badges-container">
+                    {badges.map(badge => (
+                      <div 
+                        key={badge.id} 
+                        className="badge-item" 
+                        style={{ borderColor: badge.color }}
+                        title={badge.name}
+                      >
+                        <span className="badge-icon">{badge.icon}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
                 </div>
               </div>
 
