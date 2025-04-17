@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import './ProfileModal.css';
 import defaultProfileImage from '../assets/icons/default-profile.svg'
 
-function ProfileModal({isOpen, onClose}) {
+function ProfileModal({ isOpen, onClose }) {
   const { user, loading, setUser } = useAuth();
   const [bio, setBio] = useState('');
   const [isSavingBio, setIsSavingBio] = useState(false);
@@ -33,11 +33,11 @@ function ProfileModal({isOpen, onClose}) {
         const response = await fetch('/api/user/detailed-stats', {
           credentials: 'include'
         });
-        
+
         if (!response.ok) {
           throw new Error('Failed to fetch detailed stats');
         }
-        
+
         const data = await response.json();
         setDetailedStats(data);
       } catch (error) {
@@ -46,7 +46,7 @@ function ProfileModal({isOpen, onClose}) {
         setLoadingStats(false);
       }
     };
-    
+
     fetchDetailedStats();
   }, []);
 
@@ -85,10 +85,10 @@ function ProfileModal({isOpen, onClose}) {
   const saveBio = async () => {
     setIsSavingBio(true);
     setBioMessage('');
-    
+
     // Save bio that's being sent to compare later
     const bioToSave = bio;
-    
+
     try {
       const response = await fetch('/api/profile/bio', {
         method: 'POST',
@@ -105,20 +105,20 @@ function ProfileModal({isOpen, onClose}) {
 
       const data = await response.json();
       console.log('Bio save response:', data);
-      
+
       // Update the user context with new bio
       setUser(prevUser => ({ ...prevUser, bio: data.user.bio }));
-      
+
       // Update window.user for socket access
       if (window.user) {
         window.user.bio = data.user.bio;
       }
-      
+
       // Update local bio state to keep UI consistent
       setBio(data.user.bio);
-      
+
       setBioMessage('Bio saved successfully!');
-      
+
       // Clear message after 2.5 seconds
       setTimeout(() => {
         setBioMessage('');
@@ -138,14 +138,14 @@ function ProfileModal({isOpen, onClose}) {
   const handleImageError = () => {
     console.error('Image failed to load:', user?.avatar_url);
     setImageError(true);
-    
+
     // Add a message to the user
     // not sure if this is needed by why not
     if (user?.avatar_url) {
       setUploadError('Image loaded successfully but cannot be displayed. You can view it by clicking the avatar.');
     }
   };
-  
+
   const openImageInNewTab = () => {
     if (user?.avatar_url && imageError) {
       window.open(user.avatar_url, '_blank');
@@ -174,7 +174,7 @@ function ProfileModal({isOpen, onClose}) {
       setUploadError('Invalid file type. Please upload a JPEG, PNG, GIF, or WebP image.');
       return;
     }
-    
+
     // Create a temp local URL for immediate display
     // i cant get a more efficient way that works lol
     // this is stupid inefficient but someone smarter than me is needed
@@ -189,7 +189,7 @@ function ProfileModal({isOpen, onClose}) {
     formData.append('avatar', file);
 
     setIsUploading(true);
-    
+
     try {
       const response = await fetch('/api/profile/avatar', {
         method: 'POST',
@@ -204,38 +204,38 @@ function ProfileModal({isOpen, onClose}) {
 
       const data = await response.json();
       console.log('Avatar upload response:', data);
-      
+
       // Update user state with new avatar URL from server
       setUser(prevUser => ({ ...prevUser, avatar_url: data.user.avatar_url }));
-      
+
       // Make sure window.user is updated
       if (window.user) {
         window.user.avatar_url = data.user.avatar_url;
       }
-      
+
       // Force immediate update of the avatar by updating timestamp
       setTimestamp(Date.now());
-      
+
       // Revoke the temporary local URL to free up memory
       URL.revokeObjectURL(localImageUrl);
-      
+
       // Show success message
       setUploadSuccess('Avatar uploaded successfully!');
-      
+
       // Clear success message after 2.5 sec
       setTimeout(() => {
         setUploadSuccess('');
       }, 2500);
-      
+
     } catch (error) {
       console.error('Error uploading avatar:', error);
       setUploadError(error.message || 'Failed to upload avatar. Please try again.');
-      
+
       // If upload fails, revert to the previous avatar
       if (user && user.avatar_url !== localImageUrl) {
         setUser(prevUser => ({ ...prevUser, avatar_url: user.avatar_url }));
       }
-      
+
       // Revoke the temp URL
       URL.revokeObjectURL(localImageUrl);
     } finally {
@@ -250,7 +250,7 @@ function ProfileModal({isOpen, onClose}) {
   const avatarUrl = getCacheBustedImageUrl(user?.avatar_url);
 
   return (
-    <div className= "profile-overlay">
+    <div className="profile-overlay">
       <div className="profile-container">
 
         <div className="back-button-container">
@@ -263,45 +263,45 @@ function ProfileModal({isOpen, onClose}) {
           <h1>Profile</h1>
 
           <div className="profile-header-info">
-          <div className="profile-page-info">
-            <div className="profile-page-image">
-              <input 
-                type="image" 
-                src={!imageError ? avatarUrl : defaultProfileImage}
-                alt="Profile" 
-                onClick={imageError && user?.avatar_url ? openImageInNewTab : handleAvatarClick}
-                className={isUploading ? "uploading" : ""}
-                onError={handleImageError}
-              />
-              <input 
-                type="file" 
-                ref={fileInputRef} 
-                onChange={handleFileChange} 
-                style={{ display: 'none' }} 
-                accept="image/jpeg, image/png, image/gif, image/webp"
-              />
-              {isUploading && <div className="upload-overlay">Uploading...</div>}
-              {uploadError && <div className="profile-error-message">{uploadError}</div>}
-              {uploadSuccess && <div className="success-message">{uploadSuccess}</div>}
-            </div>
-
-            <div className="written-info">
-              <div className="username-info">
-                <h2>{user?.netid || 'Guest'}</h2>
+            <div className="profile-page-info">
+              <div className="profile-page-image">
+                <input
+                  type="image"
+                  src={!imageError ? avatarUrl : defaultProfileImage}
+                  alt="Profile"
+                  onClick={imageError && user?.avatar_url ? openImageInNewTab : handleAvatarClick}
+                  className={isUploading ? "uploading" : ""}
+                  onError={handleImageError}
+                />
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFileChange}
+                  style={{ display: 'none' }}
+                  accept="image/jpeg, image/png, image/gif, image/webp"
+                />
+                {isUploading && <div className="upload-overlay">Uploading...</div>}
+                {uploadError && <div className="profile-error-message">{uploadError}</div>}
+                {uploadSuccess && <div className="success-message">{uploadSuccess}</div>}
               </div>
-              <select value='Title'></select>
+
+              <div className="written-info">
+                <div className="username-info">
+                  <h2>{user?.netid || 'Guest'}</h2>
+                </div>
+                <select value='Title'></select>
+              </div>
             </div>
-          </div>
-          <div className='biography'>
-          <textarea 
-                className="biography-input" 
+            <div className='biography'>
+              <textarea
+                className="biography-input"
                 placeholder='Write a little about yourself!'
                 value={bio}
                 onChange={handleBioChange}
               ></textarea>
               <div className="bio-controls">
-                <button 
-                  className="save-bio-btn" 
+                <button
+                  className="save-bio-btn"
                   onClick={saveBio}
                   disabled={isSavingBio}
                 >
@@ -309,8 +309,8 @@ function ProfileModal({isOpen, onClose}) {
                 </button>
                 {bioMessage && <span className={bioMessage.includes('Failed') ? 'bio-error' : 'bio-success'}>{bioMessage}</span>}
               </div>
-              </div>
-              </div>
+            </div>
+          </div>
         </div>
 
 
@@ -364,8 +364,8 @@ function ProfileModal({isOpen, onClose}) {
               </div>
               <div className="stat-card">
                 <h3>Completion Rate</h3>
-                <p>{detailedStats.sessions_started > 0 
-                  ? (detailedStats.sessions_completed / detailedStats.sessions_started * 100).toFixed(1) 
+                <p>{detailedStats.sessions_started > 0
+                  ? (detailedStats.sessions_completed / detailedStats.sessions_started * 100).toFixed(1)
                   : 0}%</p>
               </div>
             </div>
