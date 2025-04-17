@@ -254,60 +254,72 @@ function ProfileModal({ isOpen, onClose }) {
       <div className="profile-container">
 
         <div className="back-button-container">
-          <button className="back-button" onClick={onClose}>
-            <span>⟵</span> Back
+          <button className="back-button-profile" onClick={onClose}>
+            <span>⟵ </span>Back
           </button>
+          <div className='profile-title'>
+            <h2>Profile</h2>
+          </div>
         </div>
 
         <div className="profile-header">
-          <h1>Profile</h1>
+          <div className='profile-components'>
+            <div className="profile-header-info">
+              <div className="profile-page-info">
+                <div className="profile-page-image">
+                  <input
+                    type="image"
+                    src={!imageError ? avatarUrl : defaultProfileImage}
+                    alt="Profile"
+                    onClick={imageError && user?.avatar_url ? openImageInNewTab : handleAvatarClick}
+                    className={isUploading ? "uploading" : ""}
+                    onError={handleImageError}
+                  />
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleFileChange}
+                    style={{ display: 'none' }}
+                    accept="image/jpeg, image/png, image/gif, image/webp"
+                  />
+                  {isUploading && <div className="upload-overlay">Uploading...</div>}
+                  {uploadError && <div className="profile-error-message">{uploadError}</div>}
+                  {uploadSuccess && <div className="success-message">{uploadSuccess}</div>}
+                </div>
 
-          <div className="profile-header-info">
-            <div className="profile-page-info">
-              <div className="profile-page-image">
-                <input
-                  type="image"
-                  src={!imageError ? avatarUrl : defaultProfileImage}
-                  alt="Profile"
-                  onClick={imageError && user?.avatar_url ? openImageInNewTab : handleAvatarClick}
-                  className={isUploading ? "uploading" : ""}
-                  onError={handleImageError}
-                />
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  onChange={handleFileChange}
-                  style={{ display: 'none' }}
-                  accept="image/jpeg, image/png, image/gif, image/webp"
-                />
-                {isUploading && <div className="upload-overlay">Uploading...</div>}
-                {uploadError && <div className="profile-error-message">{uploadError}</div>}
-                {uploadSuccess && <div className="success-message">{uploadSuccess}</div>}
+                <div className="selectable-info">
+                  <div className="username-info">
+                    <h2>{user?.netid || 'Guest'}</h2>
+                  </div>
+                  <select value='Title'></select>
+                </div>
               </div>
 
-              <div className="written-info">
-                <div className="username-info">
-                  <h2>{user?.netid || 'Guest'}</h2>
+              <div className='biography'>
+                <textarea
+                  className="biography-input"
+                  placeholder='Write a little about yourself!'
+                  value={bio}
+                  onChange={handleBioChange}
+                ></textarea>
+                <div className="bio-controls">
+                  <button
+                    className="save-bio-btn"
+                    onClick={saveBio}
+                    disabled={isSavingBio}
+                  >
+                    {isSavingBio ? 'Saving...' : 'Save Bio'}
+                  </button>
+                  {bioMessage && <span className={bioMessage.includes('Failed') ? 'bio-error' : 'bio-success'}>{bioMessage}</span>}
                 </div>
-                <select value='Title'></select>
               </div>
             </div>
-            <div className='biography'>
-              <textarea
-                className="biography-input"
-                placeholder='Write a little about yourself!'
-                value={bio}
-                onChange={handleBioChange}
-              ></textarea>
-              <div className="bio-controls">
-                <button
-                  className="save-bio-btn"
-                  onClick={saveBio}
-                  disabled={isSavingBio}
-                >
-                  {isSavingBio ? 'Saving...' : 'Save Bio'}
-                </button>
-                {bioMessage && <span className={bioMessage.includes('Failed') ? 'bio-error' : 'bio-success'}>{bioMessage}</span>}
+
+            <div className='match-history'>
+              <h2>Match History</h2>
+
+              <div className="match-history-list">
+                
               </div>
             </div>
           </div>

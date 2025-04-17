@@ -42,11 +42,18 @@
   color: var(--secondary-color);
 }
 
+/* alignment debugged with ai */
 .back-button-container {
-  margin-bottom: 0.5rem;
+  padding-bottom: 2rem;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  position: relative;
 }
 
-.back-button {
+.back-button-profile {
+  position: absolute;
+  left: 0;
   background-color: transparent;
   border: 1px solid #F58025;
   color: #F58025;
@@ -56,6 +63,7 @@
   transition: all 0.2s;
   display: flex;     
   align-items: center;
+  z-index: 1;
 }
 
 .back-button span {
@@ -67,14 +75,21 @@
   background-color: rgba(245, 128, 37, 0.1);
 }
 
+.profile-title {
+  flex: 1;
+  text-align: center;
+  color: var(--mode-text-color);
+}
+
 .profile-header {
   text-align: center;
   margin-bottom: 3rem;
 }
 
-.profile-header h1 {
-  color: #F58025;
-  margin-bottom: 1rem;
+
+.profile-components {
+  display:flex;
+  flex-direction: row;
 }
 
 .profile-header-info {
@@ -162,7 +177,7 @@
   font-size: 0.8rem;
 }
 
-.written-info {
+.selectable-info {
   padding-left: 1.875rem;
   display: grid;
   height: fit-content;
@@ -253,6 +268,20 @@
 .bio-error {
   background-color: rgba(220, 53, 69, 0.2);
   color: #dc3545;
+}
+
+.match-history {
+  width: 50%;
+}
+
+.match-history h2 {
+  color: var(--mode-text-color);
+  margin-bottom: 0.5rem;
+}
+
+.match-history-list {
+  display: flex;
+  flex-direction: column;
 }
 
 .profile-stats {
