@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS users (
 -- Snippets table for storing text that users will type
 CREATE TABLE IF NOT EXISTS snippets (
   id SERIAL PRIMARY KEY,
-  text TEXT NOT NULL,
+  text TEXT NOT NULL UNIQUE,
   source VARCHAR(255),
   category VARCHAR(100),
   difficulty INT DEFAULT 1,

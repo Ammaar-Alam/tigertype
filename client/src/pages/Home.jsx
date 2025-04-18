@@ -1,113 +1,129 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useRace } from '../context/RaceContext';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import Navbar from '../components/Navbar';
-import Loading from '../components/Loading';
-import Modes from '../components/Modes';
-import ProfileWidget from '../components/ProfileWidget';
 import Modal from '../components/Modal';
+import Modes from '../components/Modes';
+import JoinLobbyPanel from '../components/JoinLobbyPanel';
 import './Home.css';
 
 function Home() {
-  const { user, authenticated, loading, fetchUserProfile } = useAuth();
-  const { 
-    joinPracticeMode, 
-    joinPublicRace, 
-    raceState, 
-    inactivityState, 
+  const { fetchUserProfile } = useAuth();
+  const {
+    joinPracticeMode,
+    joinPublicRace,
+    createPrivateLobby,
+    raceState,
+    inactivityState,
     dismissInactivityKick,
     setInactivityState
   } = useRace();
+
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
-  
-  // Check URL params for inactivity kick
+
+  /* -------------- URL param + navigation handling ------------------ */
   useEffect(() => {
-    // If redirected bc of inactivity, URL might have a query param
-    const kickParam = searchParams.get('kicked');
-    if (kickParam === 'inactivity') {
-      console.log('User was redirected due to inactivity kick');
-      
-      // Explicitly set the inactivity state to avoid being lost during redirect
+    if (searchParams.get('kicked') === 'inactivity') {
       setInactivityState({
         warning: false,
         warningMessage: '',
         kicked: true,
-        kickMessage: 'You have been removed from the lobby due to inactivity. Please ready up promptly when joining a race.',
+        kickMessage:
+          'You have been removed from the lobby due to inactivity. Please ready up promptly when joining a race.',
         redirectToHome: false
       });
-      
-      // Remove the query parameter after handling
-      const newParams = new URLSearchParams(searchParams);
-      newParams.delete('kicked');
-      setSearchParams(newParams, { replace: true });
+      const next = new URLSearchParams(searchParams);
+      next.delete('kicked');
+      setSearchParams(next, { replace: true });
     }
   }, [searchParams, setSearchParams, setInactivityState]);
-  
-  // Handle race joining
+
   useEffect(() => {
-    // If race is joined, navigate to race page
     if (raceState.code) {
-      navigate('/race');
+      navigate(
+        raceState.type === 'private' ? `/lobby/${raceState.code}` : '/race'
+      );
     }
-  }, [raceState.code, navigate]);
+  }, [raceState.code, raceState.type, navigate]);
 
   useEffect(() => {
     if (searchParams.get('refreshUser') === 'true') {
       fetchUserProfile?.().then(() => {
-        // Remove the query parameter after refreshing
-        searchParams.delete('refreshUser');
-        setSearchParams(searchParams, { replace: true });
+        const next = new URLSearchParams(searchParams);
+        next.delete('refreshUser');
+        setSearchParams(next, { replace: true });
       });
     }
   }, [searchParams, fetchUserProfile, setSearchParams]);
-  
-  // Define game modes
+
+  /* ------------------------- Modes list ---------------------------- */
   const gameModes = [
-    { 
-      id: 1, 
-      name: 'Solo Practice', 
-      description: 'Improve your typing skills at your own pace', 
-      action: joinPracticeMode 
+    {
+      id: 1,
+      name: 'Solo Practice',
+      description: 'Improve your typing skills at your own pace',
+      action: joinPracticeMode,
+      iconClass: 'bi bi-person'
     },
-    { 
-      id: 2, 
-      name: 'Quick Match', 
-      description: 'Race against other Princeton students', 
-      action: joinPublicRace 
+    {
+      id: 2,
+      name: 'Quick Match',
+      description: 'Race against other Princeton students',
+      action: joinPublicRace,
+      iconClass: 'bi bi-globe2'
     },
-    { 
-      id: 3, 
-      name: 'Custom Lobby', 
-      description: 'Coming soon! Create a private lobby with friends', 
-      action: null,
-      disabled: true
+    {
+      id: 3,
+      name: 'Create Private Match',
+      description: 'Create a private lobby to play with friends',
+      action: createPrivateLobby,
+      iconClass: 'bi bi-person-lock'
+    },
+    {
+      id: 4,
+      name: 'Join Private Match',
+      description: "Enter a code or NetID to join a friend's lobby",
+      subComponent: <JoinLobbyPanel />,
+      iconClass: 'bi bi-key'
     }
   ];
-  
+
+  // Separate modes for layout
+  const standardModes = gameModes.filter(mode => mode.id === 1 || mode.id === 2);
+  const privateModes = gameModes.filter(mode => mode.id === 3 || mode.id === 4);
+
+  /* --------------------------- Render ------------------------------ */
   return (
     <div className="home-page">
-      {/* Inactivity Kick Modal */}
       <Modal
         isOpen={inactivityState.kicked}
         title="Removed for Inactivity"
-        message={inactivityState.kickMessage || "You have been removed from the lobby due to inactivity."}
+        message={
+          inactivityState.kickMessage ||
+          'You have been removed from the lobby due to inactivity.'
+        }
         buttonText="I Understand"
         onClose={dismissInactivityKick}
       />
-      
+
       <div className="home-container">
         <div className="home-header">
           <h1>Start Your Game</h1>
+          <p className="home-tagline">Select a mode to get started!</p>
         </div>
-        
-        <div className="modes-section">
-          <Modes modes={gameModes} />
-        </div>
-        
-        <div className="home-footer">
-          <p>Select a mode to get started!</p>
+
+        {/* New layout container */}
+        <div className="modes-layout-section">
+          {/* Render standard modes directly */}
+          <div className="standard-modes-container">
+            <Modes modes={standardModes} />
+          </div>
+
+          {/* Container for stacked private modes */}
+          <div className="private-modes-stack">
+            <Modes modes={privateModes} />
+          </div>
         </div>
       </div>
     </div>

@@ -29,16 +29,41 @@ const inactivityTimers = new Map(); // Store timers for inactivity warnings and 
 const playerAvatars = new Map(); // socketId -> avatar_url
 
 // Helper functions
-// Get player data for client, including avatar URL
-const getPlayerClientData = (player) => {
-  // Use cached avatar if available, otherwise use null (default avatar will be used)
+// Get player data for client, including avatar URL and basic stats
+const getPlayerClientData = async (player) => { // Make async
+  // Use cached avatar if available, otherwise use null
   const avatar_url = playerAvatars.get(player.id) || null;
-  return { 
-    netid: player.netid, 
+  let avg_wpm = null;
+
+  // Fetch basic stats if userId is available
+  if (player.userId) {
+    try {
+      // Fetch only avg_wpm for efficiency
+      const userStats = await UserModel.findById(player.userId, ['avg_wpm']);
+      if (userStats && userStats.avg_wpm !== null) { // Check if avg_wpm exists
+        // Parse the value, defaulting to 0 if null/undefined or NaN
+        const parsedWpm = parseFloat(userStats.avg_wpm);
+        avg_wpm = isNaN(parsedWpm) ? 0 : parsedWpm;
+      } else {
+         avg_wpm = 0; // Default to 0 if user not found or no stats
+      }
+    } catch (err) {
+      console.error(`Error fetching stats for ${player.netid}:`, err);
+      avg_wpm = 0; // Default to 0 on error
+    }
+  } else {
+     avg_wpm = 0; // Default to 0 if no userId
+  }
+
+
+  return {
+    netid: player.netid,
     ready: player.ready,
-    avatar_url
+    avatar_url,
+    avg_wpm // Include avg_wpm
   };
 };
+
 
 // Fetch user avatar URL from database
 const fetchUserAvatar = async (userId, socketId) => {
@@ -47,7 +72,7 @@ const fetchUserAvatar = async (userId, socketId) => {
       console.log(`Cannot fetch avatar: No userId provided for socketId ${socketId}`);
       return;
     }
-    
+
     const user = await UserModel.findById(userId);
     if (user && user.avatar_url) {
       console.log(`Successfully fetched avatar for user ${userId} (socket ${socketId}): ${user.avatar_url}`);
@@ -62,24 +87,73 @@ const fetchUserAvatar = async (userId, socketId) => {
   }
 };
 
+// Helper function to leave the current race a socket might be in
+const leaveCurrentRace = async (io, socket, netid) => {
+  let leftRaceCode = null;
+  for (const [code, players] of racePlayers.entries()) {
+    const playerIndex = players.findIndex(p => p.id === socket.id);
+    if (playerIndex !== -1) {
+      leftRaceCode = code;
+      console.log(`User ${netid} leaving previous race ${code}`);
+      socket.leave(code); // Leave socket room
+
+      const player = players[playerIndex];
+      const race = activeRaces.get(code);
+
+      // Remove player from memory
+      players.splice(playerIndex, 1);
+
+      // Remove from DB if applicable
+      if (race && race.type !== 'practice' && player.userId) {
+        try {
+          await RaceModel.removePlayerFromLobby(race.id, player.userId);
+        } catch (dbErr) {
+          console.error(`Error removing user ${netid} from lobby_players table on leave:`, dbErr);
+        }
+      }
+
+      // Clean up race if empty, otherwise notify others
+      if (players.length === 0) {
+        racePlayers.delete(code);
+        activeRaces.delete(code);
+        console.log(`Cleaned up empty race ${code}`);
+      } else {
+        racePlayers.set(code, players);
+        // Update player list asynchronously
+        try {
+            const clientPlayers = await Promise.all(players.map(p => getPlayerClientData(p)));
+            io.to(code).emit('race:playersUpdate', { players: clientPlayers });
+            io.to(code).emit('race:playerLeft', { netid });
+        } catch (err) {
+            console.error(`Error preparing client data after leave in ${code}:`, err);
+        }
+        // TODO: Handle host leaving a private lobby
+      }
+      break; // Assume player is only in one race
+    }
+  }
+  return leftRaceCode; // Return the code of the race left, if any
+};
+
+
 // Initialize socket handlers with IO instance
 const initialize = (io) => {
   io.on('connection', (socket) => {
     // Store user info from session middleware
     const { user: netid, userId } = socket.userInfo;
-    
+
     // Debug info
-    console.log('Socket connection attempt with info:', { 
-      netid, 
-      userId, 
+    console.log('Socket connection attempt with info:', {
+      netid,
+      userId,
       socketId: socket.id
     });
-    
+
     // If no netid, log error but try continuing
     if (!netid) {
       console.error('Socket connection has missing netid, this is unexpected');
       console.error('Socket userInfo:', socket.userInfo);
-      
+
       // Try to recover the netid from another place if possible
       const sessionUserInfo = socket.request.session?.userInfo;
       if (sessionUserInfo && sessionUserInfo.user) {
@@ -95,90 +169,65 @@ const initialize = (io) => {
         return;
       }
     }
-    
+
     console.log(`Socket connected: ${netid} (${socket.id})`);
-    
+
     // Fetch user avatar when connecting
     if (userId) {
       fetchUserAvatar(userId, socket.id);
     } else {
       console.log(`No userId available for fetching avatar: ${netid} (${socket.id})`);
     }
-    
+
     // Emit welcome event with user info
     socket.emit('connected', {
       id: socket.id,
       netid: netid || socket.userInfo?.user || 'unknown-user'
     });
-    
+
     // Handle joining practice mode
     socket.on('practice:join', async (options = {}) => {
+      const { user: netid, userId } = socket.userInfo; // Get user info
       try {
         console.log(`User ${netid} joining practice mode with options:`, options);
-        
-        // Check if player is already in a race
-        let alreadyInRace = false;
-        for (const [code, players] of racePlayers.entries()) {
-          if (players.some(p => p.id === socket.id)) {
-            alreadyInRace = true;
-            console.log(`User ${netid} is already in race ${code}, leaving that race first`);
-            
-            // Leave existing race rooms
-            socket.leave(code);
-            
-            // Clean up player from the race
-            const updatedPlayers = players.filter(p => p.id !== socket.id);
-            if (updatedPlayers.length === 0) {
-              racePlayers.delete(code);
-              activeRaces.delete(code);
-            } else {
-              racePlayers.set(code, updatedPlayers);
-              
-              // Notify other players
-              io.to(code).emit('race:playersUpdate', {
-                players: updatedPlayers.map(p => getPlayerClientData(p))
-              });
-              
-              // Broadcast player left message
-              io.to(code).emit('race:playerLeft', { netid });
-            }
-          }
-        }
-        
+
+        // Leave any existing race first
+        await leaveCurrentRace(io, socket, netid);
+
         let snippet;
         let lobby;
-        
+
         // Handle timed test mode
         if (options.testMode === 'timed' && options.testDuration) {
           // Create a timed test snippet
           const duration = parseInt(options.testDuration) || 30;
           snippet = createTimedTestSnippet(duration);
-          
+
           // Since this is a virtual snippet, create a practice lobby without a snippet ID
           lobby = await RaceModel.create('practice', null);
-          
+
           console.log(`Created timed test (${duration}s) for practice mode`);
         } else {
           // Standard snippet mode - get a random snippet from database
           snippet = await SnippetModel.getRandom();
-          
+
           if (!snippet) {
             console.error('Failed to load snippet for practice mode');
             socket.emit('error', { message: 'Failed to load snippet' });
             return;
           }
-          
+
           console.log(`Loaded snippet ID ${snippet.id} for practice mode`);
-          
+
           // Create a practice lobby
           lobby = await RaceModel.create('practice', snippet.id);
         }
-        
+
         console.log(`Created practice lobby with code ${lobby.code}`);
-        
+
         // Join the socket room
         socket.join(lobby.code);
-        
+
         // Add player to race
         racePlayers.set(lobby.code, [{
           id: socket.id,
@@ -188,7 +237,7 @@ const initialize = (io) => {
           lobbyId: lobby.id,
           snippetId: snippet.id
         }]);
-        
+
         // Active race info
         activeRaces.set(lobby.code, {
           id: lobby.id,
@@ -203,7 +252,7 @@ const initialize = (io) => {
           type: 'practice',
           startTime: null
         });
-        
+
         // Send race info to player
         socket.emit('race:joined', {
           code: lobby.code,
@@ -215,49 +264,27 @@ const initialize = (io) => {
             is_timed_test: snippet.is_timed_test || false,
             duration: snippet.duration || null
           }
+          // No players array needed for practice mode join confirmation
         });
       } catch (err) {
         console.error('Error joining practice:', err);
         socket.emit('error', { message: 'Failed to join practice mode' });
       }
     });
-    
+
     // Handle joining public lobby
     socket.on('public:join', async () => {
+      const { user: netid, userId } = socket.userInfo; // Get user info
       try {
         console.log(`User ${netid} joining public lobby`);
-        
-        // Check if player is already in a race
-        for (const [code, players] of racePlayers.entries()) {
-          if (players.some(p => p.id === socket.id)) {
-            console.log(`User ${netid} is already in race ${code}, leaving that race first`);
-            
-            // Leave existing race rooms
-            socket.leave(code);
-            
-            // Clean up player from the race
-            const updatedPlayers = players.filter(p => p.id !== socket.id);
-            if (updatedPlayers.length === 0) {
-              racePlayers.delete(code);
-              activeRaces.delete(code);
-            } else {
-              racePlayers.set(code, updatedPlayers);
-              
-              // Notify other players
-              io.to(code).emit('race:playersUpdate', {
-                players: updatedPlayers.map(p => getPlayerClientData(p))
-              });
-              
-              // Broadcast player left message
-              io.to(code).emit('race:playerLeft', { netid });
-            }
-          }
-        }
-        
+
+        // Leave any existing race first
+        await leaveCurrentRace(io, socket, netid);
+
         // Try to find an existing public lobby
         let lobby = await RaceModel.findPublicLobby();
         let snippet;
-        
+
         // If no lobby exists, create a new one with a random snippet
         if (!lobby) {
           console.log('No existing public lobby found, creating a new one');
@@ -268,7 +295,7 @@ const initialize = (io) => {
             return;
           }
           lobby = await RaceModel.create('public', snippet.id);
-          
+
           // Initialize active race
           activeRaces.set(lobby.code, {
             id: lobby.id,
@@ -281,7 +308,7 @@ const initialize = (io) => {
             type: 'public',
             startTime: null
           });
-          
+
           // Initialize player list
           racePlayers.set(lobby.code, []);
           console.log(`Created new public lobby with code ${lobby.code}`);
@@ -303,17 +330,17 @@ const initialize = (io) => {
               type: lobby.type,
               startTime: null
             });
-            
+
             // Initialize player list if needed
             if (!racePlayers.has(lobby.code)) {
               racePlayers.set(lobby.code, []);
             }
           }
         }
-        
+
         // Join the socket room
         socket.join(lobby.code);
-        
+
         // Add player to race
         const players = racePlayers.get(lobby.code) || [];
         const raceInfo = activeRaces.get(lobby.code);
@@ -331,7 +358,7 @@ const initialize = (io) => {
           snippetId: raceInfo.snippet.id
         });
         racePlayers.set(lobby.code, players);
-        
+
         // Add the player to the lobby_players table for public matches
         try {
           await RaceModel.addPlayerToLobby(raceInfo.id, userId, false);
@@ -340,8 +367,9 @@ const initialize = (io) => {
           console.error(`Error adding user ${netid} to lobby_players table:`, dbErr);
           // Continue anyway; in-memory state is already updated
         }
-        
-        // Send race info to player
+
+        // Send race info to player (needs async handling)
+        const clientPlayersPublicJoin = await Promise.all(players.map(p => getPlayerClientData(p)));
         const race = activeRaces.get(lobby.code);
         socket.emit('race:joined', {
           code: lobby.code,
@@ -351,17 +379,17 @@ const initialize = (io) => {
             id: race.snippet.id,
             text: race.snippet.text
           },
-          players: players.map(p => getPlayerClientData(p))
+          players: clientPlayersPublicJoin // Use resolved data
         });
-        
+
         // Broadcast updated player list to all in the lobby
         io.to(lobby.code).emit('race:playersUpdate', {
-          players: players.map(p => getPlayerClientData(p))
+          players: clientPlayersPublicJoin // Use resolved data
         });
-        
+
         // Check for inactive players
         checkForInactivePlayers(io, lobby.code);
-        
+
         // If all players are ready (2+), start countdown
         checkAndStartCountdown(io, lobby.code);
       } catch (err) {
@@ -369,6 +397,435 @@ const initialize = (io) => {
         socket.emit('error', { message: 'Failed to join public lobby' });
       }
     });
+
+    // --- Private Lobby Handlers ---
+
+    // Handle creating a private lobby
+    socket.on('private:create', async (options = {}, callback) => {
+      const { user: netid, userId } = socket.userInfo;
+      try {
+        console.log(`User ${netid} creating private lobby with options:`, options);
+
+        // Leave any existing race first
+        await leaveCurrentRace(io, socket, netid);
+
+        // Determine snippet ID (can be null for timed tests)
+        let snippetId = null;
+        let snippet = null;
+        if (options.testMode === 'timed' && options.testDuration) {
+          // Create a timed test snippet (virtual, not stored in DB)
+          const duration = parseInt(options.testDuration) || 30;
+          snippet = createTimedTestSnippet(duration);
+          // snippetId remains null for timed tests in practice/private
+        } else {
+          // Get a snippet based on filters or random
+          // TODO: Implement snippet filtering based on options.snippetFilters
+          snippet = await SnippetModel.getRandom(); // Using random for now
+          if (!snippet) throw new Error('Failed to load snippet');
+          snippetId = snippet.id;
+        }
+
+        // Create the private lobby in the database, associating the host
+        const lobby = await RaceModel.create('private', snippetId, userId);
+        console.log(`Created private lobby ${lobby.code} hosted by ${netid}`);
+
+        // Join the socket room
+        socket.join(lobby.code);
+
+        // Add host player to the lobby in memory
+        const hostPlayer = {
+          id: socket.id,
+          netid,
+          userId,
+          ready: true, // Host is implicitly ready
+          lobbyId: lobby.id,
+          snippetId: snippetId // Store snippetId used
+        };
+        racePlayers.set(lobby.code, [hostPlayer]);
+
+        // Add host to lobby_players table
+        try {
+          await RaceModel.addPlayerToLobby(lobby.id, userId, true);
+        } catch (dbErr) {
+          console.error(`Error adding host ${netid} to lobby_players table:`, dbErr);
+          // If DB fails, rollback memory state? For now, log and continue.
+        }
+
+        // Store active race info
+        activeRaces.set(lobby.code, {
+          id: lobby.id,
+          code: lobby.code,
+          snippet: { // Store full snippet info
+            id: snippet?.id, // Use optional chaining as timed snippet has no DB id
+            text: snippet.text,
+            is_timed_test: snippet.is_timed_test || false,
+            duration: snippet.duration || null
+          },
+          status: 'waiting',
+          type: 'private',
+          hostId: userId, // Store host ID
+          hostNetId: netid, // Store host NetID
+          startTime: null,
+          settings: { // Store initial settings
+            testMode: options.testMode || 'snippet',
+            testDuration: options.testDuration || 15,
+            // snippetFilters: options.snippetFilters || { difficulty: 'all', type: 'all', department: 'all' }
+          }
+        });
+
+        // Fetch avatar for the host
+        await fetchUserAvatar(userId, socket.id);
+
+        // Send race info back to the host (needs async handling for player data)
+        const hostClientDataCreate = await getPlayerClientData(hostPlayer); // Renamed variable
+        const joinedDataCreate = { // Renamed variable
+          code: lobby.code,
+          type: 'private',
+          lobbyId: lobby.id,
+          hostNetId: netid, // Include host netid
+          snippet: activeRaces.get(lobby.code).snippet,
+          settings: activeRaces.get(lobby.code).settings,
+          players: [hostClientDataCreate] // Use renamed variable
+        };
+        socket.emit('race:joined', joinedDataCreate); // Use renamed variable
+
+        // Optional: Use callback for confirmation
+        if (callback) callback({ success: true, lobby: joinedDataCreate }); // Use renamed variable
+
+      } catch (err) {
+        console.error(`Error creating private lobby for ${netid}:`, err);
+        socket.emit('error', { message: err.message || 'Failed to create private lobby' });
+        if (callback) callback({ success: false, error: err.message || 'Failed to create private lobby' });
+      }
+    });
+
+    // Handle joining a private lobby
+    socket.on('private:join', async (data, callback) => {
+      const { user: netid, userId } = socket.userInfo;
+      const { code, hostNetId, playerNetId } = data; // Can join by code, host netId, or any player's netId
+
+      try {
+        console.log(`User ${netid} attempting to join private lobby via:`, data);
+
+        // Leave any existing race first
+        await leaveCurrentRace(io, socket, netid);
+
+        let lobby;
+        if (code) {
+          lobby = await RaceModel.findByCode(code);
+        } else if (hostNetId) {
+          lobby = await RaceModel.findByHostNetId(hostNetId);
+        } else if (playerNetId) {
+          lobby = await RaceModel.findByPlayerNetId(playerNetId);
+        } else {
+          throw new Error('Lobby code or NetID required to join.');
+        }
+
+        if (!lobby || lobby.type !== 'private') {
+          throw new Error('Private lobby not found.');
+        }
+
+        if (lobby.status !== 'waiting') {
+          throw new Error('Lobby is already in progress or finished.');
+        }
+
+        // Check if lobby is full (using DB check within addPlayerToLobby)
+        try {
+          await RaceModel.addPlayerToLobby(lobby.id, userId, false);
+        } catch (err) {
+          if (err.message === 'Lobby is full.') {
+             throw new Error('Lobby is full (max 10 players).');
+          }
+          // Re-throw other DB errors
+          throw err;
+        }
+
+        // Join the socket room
+        socket.join(lobby.code);
+
+        // Add player to in-memory list
+        const players = racePlayers.get(lobby.code) || [];
+        const newPlayer = {
+          id: socket.id,
+          netid,
+          userId,
+          ready: false,
+          lobbyId: lobby.id,
+          snippetId: lobby.snippet_id // Get snippetId from lobby data
+        };
+        players.push(newPlayer);
+        racePlayers.set(lobby.code, players);
+
+        // Ensure active race exists in memory (might happen if server restarted)
+        if (!activeRaces.has(lobby.code)) {
+           console.warn(`Lobby ${lobby.code} exists in DB but not memory, re-initializing.`);
+           // Fetch full lobby details including snippet text
+           const fullLobby = await RaceModel.getLobbyWithHost(lobby.id);
+           if (!fullLobby) throw new Error('Failed to re-initialize lobby data.');
+
+           activeRaces.set(lobby.code, {
+             id: fullLobby.id,
+             code: fullLobby.code,
+             snippet: {
+               id: fullLobby.snippet_id,
+               text: fullLobby.snippet_text,
+               // Assuming private lobbies don't start with timed tests unless explicitly set later
+               is_timed_test: false,
+               duration: null
+             },
+             status: fullLobby.status,
+             type: 'private',
+             hostId: fullLobby.host_id,
+             hostNetId: fullLobby.host_netid,
+             startTime: null,
+             settings: { /* TODO: Load settings if stored */ }
+           });
+        }
+        const raceInfo = activeRaces.get(lobby.code);
+
+        // Fetch avatar for the joining player
+        await fetchUserAvatar(userId, socket.id);
+
+        // Send race info to the joining player (needs async handling)
+        const currentPlayersClientDataJoin = await Promise.all(players.map(p => getPlayerClientData(p)));
+        const joinedDataJoin = { // Renamed variable
+          code: lobby.code,
+          type: 'private',
+          lobbyId: lobby.id,
+          hostNetId: raceInfo.hostNetId,
+          snippet: raceInfo.snippet,
+          settings: raceInfo.settings,
+          players: currentPlayersClientDataJoin // Use resolved data
+        };
+        socket.emit('race:joined', joinedDataJoin); // Use renamed variable
+
+        // Broadcast updated player list to all in the lobby
+        io.to(lobby.code).emit('race:playersUpdate', {
+          players: currentPlayersClientDataJoin // Use resolved data
+        });
+
+        // Optional: Use callback for confirmation
+        if (callback) callback({ success: true, lobby: joinedDataJoin }); // Use renamed variable
+
+      } catch (err) {
+        console.error(`Error joining private lobby for ${netid}:`, err);
+        socket.emit('error', { message: err.message || 'Failed to join private lobby' });
+        if (callback) callback({ success: false, error: err.message || 'Failed to join private lobby' });
+      }
+    });
+
+    // Handle kicking a player (host only)
+    socket.on('lobby:kick', async (data, callback) => {
+       const { user: hostNetid, userId: hostUserId } = socket.userInfo;
+       const { targetNetId, code } = data;
+
+       try {
+         console.log(`Host ${hostNetid} attempting to kick ${targetNetId} from lobby ${code}`);
+         const race = activeRaces.get(code);
+         const players = racePlayers.get(code);
+
+         if (!race || !players || race.type !== 'private') {
+           throw new Error('Lobby not found or not private.');
+         }
+
+         // Check if emitter is the host
+         if (race.hostId !== hostUserId) {
+           throw new Error('Only the host can kick players.');
+         }
+
+         const targetPlayerIndex = players.findIndex(p => p.netid === targetNetId);
+         if (targetPlayerIndex === -1) {
+           throw new Error('Player not found in lobby.');
+         }
+
+         const targetPlayer = players[targetPlayerIndex];
+         if (targetPlayer.userId === hostUserId) {
+           throw new Error('Host cannot kick themselves.');
+         }
+
+         // Remove player from memory
+         players.splice(targetPlayerIndex, 1);
+         racePlayers.set(code, players);
+
+         // Remove player from DB
+         try {
+           await RaceModel.removePlayerFromLobby(race.id, targetPlayer.userId);
+         } catch (dbErr) {
+           console.error(`Error removing kicked player ${targetNetId} from DB:`, dbErr);
+           // Continue anyway, memory state is updated
+         }
+
+         // Notify the kicked player
+         const targetSocket = io.sockets.sockets.get(targetPlayer.id);
+         if (targetSocket) {
+           targetSocket.emit('lobby:kicked', { reason: `Kicked by host ${hostNetid}` });
+           targetSocket.leave(code); // Force leave the room
+         }
+
+         // Notify remaining players (needs async handling)
+         const remainingPlayersClientDataKick = await Promise.all(players.map(p => getPlayerClientData(p)));
+         io.to(code).emit('race:playersUpdate', {
+           players: remainingPlayersClientDataKick
+         });
+         io.to(code).emit('race:playerLeft', { netid: targetNetId, reason: 'kicked' });
+
+         console.log(`Player ${targetNetId} kicked from lobby ${code} by host ${hostNetid}`);
+         if (callback) callback({ success: true });
+
+       } catch (err) {
+         console.error(`Error kicking player ${targetNetId} from ${code}:`, err);
+         socket.emit('error', { message: err.message || 'Failed to kick player' });
+         if (callback) callback({ success: false, error: err.message || 'Failed to kick player' });
+       }
+    });
+
+    // Handle updating lobby settings (host only)
+    socket.on('lobby:updateSettings', async (data, callback) => {
+      const { user: hostNetid, userId: hostUserId } = socket.userInfo;
+      const { code, settings } = data; // settings = { testMode, testDuration, snippetId? }
+
+      try {
+        console.log(`Host ${hostNetid} updating settings for lobby ${code}:`, settings);
+        const race = activeRaces.get(code);
+
+        if (!race || race.type !== 'private') {
+          throw new Error('Lobby not found or not private.');
+        }
+
+        if (race.hostId !== hostUserId) {
+          throw new Error('Only the host can change settings.');
+        }
+
+        if (race.status !== 'waiting') {
+          throw new Error('Cannot change settings after race has started.');
+        }
+
+        // --- Update Snippet if necessary ---
+        let newSnippet = race.snippet;
+        let snippetChanged = false;
+
+        // If snippetId is explicitly provided (user selected a specific snippet)
+        if (settings.snippetId && settings.snippetId !== race.snippet?.id) {
+          const dbSnippet = await SnippetModel.findById(settings.snippetId);
+          if (!dbSnippet) throw new Error('Selected snippet not found.');
+          newSnippet = {
+            id: dbSnippet.id,
+            text: dbSnippet.text,
+            is_timed_test: false, // Assume regular snippet
+            duration: null
+          };
+          snippetChanged = true;
+        }
+        // If mode changed to timed OR duration changed while already in timed mode
+        else if (
+          (settings.testMode === 'timed' && (race.settings.testMode !== 'timed' || settings.testDuration !== race.settings.testDuration)) ||
+          // When only the duration is provided (without testMode) but we are already in timed mode
+          (typeof settings.testMode === 'undefined' && typeof settings.testDuration !== 'undefined' && race.settings.testMode === 'timed' && settings.testDuration !== race.settings.testDuration)
+        ) {
+          const duration = parseInt(settings.testDuration) || parseInt(race.settings.testDuration) || 30;
+          newSnippet = createTimedTestSnippet(duration);
+          snippetChanged = true;
+          // Ensure race.settings will reflect timed mode even if testMode was omitted
+          settings.testMode = 'timed';
+        }
+        // If mode changed back to snippet from timed
+        else if (settings.testMode === 'snippet' && race.settings.testMode === 'timed') {
+          // Load a new random snippet (or based on filters if implemented)
+          const randomSnippet = await SnippetModel.getRandom();
+          if (!randomSnippet) throw new Error('Failed to load snippet for snippet mode.');
+          newSnippet = {
+            id: randomSnippet.id,
+            text: randomSnippet.text,
+            is_timed_test: false,
+            duration: null
+          };
+          snippetChanged = true;
+        }
+
+        // Update race state in memory
+        race.settings = { ...race.settings, ...settings }; // Update settings
+        if (snippetChanged) {
+          race.snippet = newSnippet; // Update snippet
+        }
+        activeRaces.set(code, race);
+
+        // Update settings in DB (currently only snippet_id is supported by model)
+        if (snippetChanged && newSnippet.id) { // Only update DB if it's a DB snippet
+          try {
+            await RaceModel.updateSettings(race.id, { snippet_id: newSnippet.id });
+          } catch (dbErr) {
+            console.error(`Error updating snippet_id in DB for lobby ${code}:`, dbErr);
+            // Log and continue, memory state is updated
+          }
+        }
+
+        // Broadcast updated settings and potentially new snippet to all players
+        io.to(code).emit('lobby:settingsUpdated', {
+           settings: race.settings,
+           snippet: race.snippet // Send the potentially new snippet
+        });
+
+        console.log(`Lobby ${code} settings updated by host ${hostNetid}`);
+        if (callback) callback({ success: true, settings: race.settings, snippet: race.snippet });
+
+      } catch (err) {
+        console.error(`Error updating settings for lobby ${code}:`, err);
+        socket.emit('error', { message: err.message || 'Failed to update settings' });
+        if (callback) callback({ success: false, error: err.message || 'Failed to update settings' });
+      }
+    });
+
+     // Handle starting the race (host only)
+    socket.on('lobby:startRace', async (data, callback) => {
+      const { user: hostNetid, userId: hostUserId } = socket.userInfo;
+      const { code } = data;
+
+      try {
+        console.log(`Host ${hostNetid} attempting to start race for lobby ${code}`);
+        const race = activeRaces.get(code);
+        const players = racePlayers.get(code);
+
+        if (!race || !players || race.type !== 'private') {
+          throw new Error('Lobby not found or not private.');
+        }
+
+        if (race.hostId !== hostUserId) {
+          throw new Error('Only the host can start the race.');
+        }
+
+        if (race.status !== 'waiting') {
+           throw new Error('Race cannot be started.');
+         }
+
+         // --- Minimum Player Check ---
+         if (players.length < 2) {
+           // Allow host to start alone for testing/specific scenarios? For now, require 2.
+           // If allowing 1 player: if (players.length < 1) ...
+           throw new Error('At least two players are required to start the race.');
+         }
+         // --- End Minimum Player Check ---
+
+         // Optional: Check if all players are ready? Or allow host to force start?
+         // For now, allow host to start regardless of readiness.
+         // const allReady = players.every(p => p.ready);
+        // if (!allReady) {
+        //   throw new Error('Not all players are ready.');
+        // }
+
+        // Start the countdown (using the standard 5-second countdown)
+        await startCountdown(io, code);
+
+        console.log(`Race ${code} countdown initiated by host ${hostNetid}`);
+        if (callback) callback({ success: true });
+
+      } catch (err) {
+        console.error(`Error starting race for lobby ${code}:`, err);
+        socket.emit('error', { message: err.message || 'Failed to start race' });
+        if (callback) callback({ success: false, error: err.message || 'Failed to start race' });
+      }
+    });
+
+    // --- End Private Lobby Handlers ---
     
     // Handle player ready status
     socket.on('player:ready', async () => {
@@ -401,9 +858,10 @@ const initialize = (io) => {
               }
             }
             
-            // Broadcast updated player list
+            // Broadcast updated player list (needs async handling)
+            const currentPlayersClientDataReady = await Promise.all(players.map(p => getPlayerClientData(p)));
             io.to(code).emit('race:playersUpdate', {
-              players: players.map(p => getPlayerClientData(p))
+              players: currentPlayersClientDataReady
             });
             
             // Check for inactive players
@@ -515,10 +973,12 @@ const initialize = (io) => {
 
         console.log(`Received result from ${netid}: WPM ${wpm}, Acc ${accuracy}, Time ${completion_time}`);
 
-        // Check if the player is in the specified race
+        // Retrieve race and player info
         const players = racePlayers.get(code);
         const player = players?.find(p => p.id === socket.id);
         const race = activeRaces.get(code);
+        // Skip base stat updates for private lobbies
+        const isPrivate = race?.type === 'private';
         
         // --- BEGIN DEBUG LOGGING --- 
         console.log(`[DEBUG race:result] Found player: ${!!player}, Found race: ${!!race}`);
@@ -547,13 +1007,15 @@ const initialize = (io) => {
             // Optionally emit an error back to client if needed
           }
           
-          // Use UserModel correctly for stats updates
+          // Update base stats only for non-private lobbies
           try {
-            await UserModel.updateStats(userId, wpm, accuracy, true); 
-            await UserModel.updateFastestWpm(userId, wpm); 
-            console.log(`[DEBUG race:result] Updated user stats (if applicable) for ${netid}`);
+            if (!isPrivate) {
+              await UserModel.updateStats(userId, wpm, accuracy, true);
+              await UserModel.updateFastestWpm(userId, wpm);
+              console.log(`[DEBUG race:result] Updated user stats for ${netid}`);
+            }
           } catch (statsError) {
-             console.error(`[ERROR race:result] Failed to update user stats for ${userId} after timed result:`, statsError);
+            console.error(`[ERROR race:result] Failed to update user stats for ${userId} after timed result:`, statsError);
           }
 
         } else if (snippetId) {
@@ -569,13 +1031,15 @@ const initialize = (io) => {
              console.error(`[ERROR race:result] Failed to insert regular race result for user ${userId}:`, dbError);
           }
           
-          // Use UserModel correctly for stats updates
+          // Update base stats only for non-private lobbies
           try {
-            await UserModel.updateStats(userId, wpm, accuracy, false);
-            await UserModel.updateFastestWpm(userId, wpm);
-             console.log(`[DEBUG race:result] Updated user stats (if applicable) for ${netid}`);
+            if (!isPrivate) {
+              await UserModel.updateStats(userId, wpm, accuracy, false);
+              await UserModel.updateFastestWpm(userId, wpm);
+              console.log(`[DEBUG race:result] Updated user stats for ${netid}`);
+            }
           } catch (statsError) {
-             console.error(`[ERROR race:result] Failed to update user stats for ${userId} after regular result:`, statsError);
+            console.error(`[ERROR race:result] Failed to update user stats for ${userId} after regular result:`, statsError);
           }
         } else {
           console.warn(`[WARN race:result] Result from ${netid} for race ${code} has no snippetId and is not a timed test.`);
@@ -661,13 +1125,69 @@ const initialize = (io) => {
           // Get player and race information before removing
           const player = players[playerIndex];
           const race = activeRaces.get(code);
-          
+
+          // --- Handle Host Disconnecting from Private Lobby ---
+          if (race && race.type === 'private' && race.hostId === player.userId) {
+            console.log(`Host ${netid} disconnected from private lobby ${code}. Attempting host reassignment.`);
+
+            // Remove host player from list (already about to be removed below as part of splice, but ensure)
+            // players.splice(playerIndex, 1);  // will be executed after this block
+
+            // Filter out the disconnecting host to derive remaining players
+            const remainingPlayers = players.filter(p => p.id !== socket.id);
+
+            if (remainingPlayers.length === 0) {
+              // No one left – terminate lobby as before
+              console.log(`No players left in lobby ${code} after host disconnect. Terminating lobby.`);
+
+              socket.to(code).emit('lobby:terminated', { reason: 'Lobby empty after host disconnected.' });
+
+              // Clean up memory structures
+              racePlayers.delete(code);
+              activeRaces.delete(code);
+
+              // Soft‑terminate in DB for consistency (best‑effort)
+              try {
+                await RaceModel.softTerminate(race.id);
+              } catch (e) {
+                console.error(`Error soft‑terminating lobby ${code}:`, e);
+              }
+
+              continue; // Done with this lobby
+            }
+
+            // Choose the oldest remaining player (index 0 after filtering) as new host
+            const newHost = remainingPlayers[0];
+
+            race.hostId = newHost.userId;
+            race.hostNetId = newHost.netid;
+            activeRaces.set(code, race);
+
+            // Persist new host in DB (best‑effort)
+            try {
+              await RaceModel.reassignHost(race.id, newHost.userId);
+            } catch (e) {
+              console.error(`Failed to reassign host in DB for lobby ${code}:`, e);
+            }
+
+            // Inform clients in the lobby
+            io.to(code).emit('lobby:newHost', { newHostNetId: newHost.netid });
+
+            console.log(`Reassigned host of lobby ${code} to ${newHost.netid}`);
+            // Continue with standard disconnect handling (player list has been adjusted already below)
+          }
+          // --- End Host Disconnect Handling ---
+
+
+          // --- Standard Player Disconnect Logic ---
+          console.log(`Standard disconnect for player ${netid} in race ${code}`);
+
           // Clear any inactivity timers for this player
           clearInactivityTimers(code, socket.id);
-          
-          // Remove player from race
+
+          // Remove player from race in memory
           players.splice(playerIndex, 1);
-          
+
           // If race exists and isn't practice mode, remove from db
           if (race && race.type !== 'practice' && player.userId) {
             try {
@@ -689,9 +1209,10 @@ const initialize = (io) => {
           // Update player list
           racePlayers.set(code, players);
           
-          // Broadcast updated player list
+          // Broadcast updated player list (needs async handling)
+          const remainingPlayersClientDataDisc = await Promise.all(players.map(p => getPlayerClientData(p)));
           io.to(code).emit('race:playersUpdate', {
-            players: players.map(p => getPlayerClientData(p))
+            players: remainingPlayersClientDataDisc
           });
           
           // Broadcast player left message
@@ -779,18 +1300,23 @@ const initialize = (io) => {
   });
 };
 
-// Check if all players are ready and start countdown if appropriate
+// Check if all players are ready and start countdown if appropriate (for PUBLIC lobbies only)
 const checkAndStartCountdown = (io, code) => {
   const players = racePlayers.get(code);
   const race = activeRaces.get(code);
-  
-  if (!race || race.status !== 'waiting') {
-    console.log(`Race ${code} is not in waiting status, cannot start countdown`);
+
+  // Only proceed for PUBLIC lobbies in waiting status
+  if (!race || race.status !== 'waiting' || race.type !== 'public') {
+    if (race && race.type === 'private') {
+      console.log(`Race ${code} is private, host must start manually.`);
+    } else {
+      console.log(`Race ${code} cannot start countdown (status: ${race?.status}, type: ${race?.type})`);
+    }
     return;
   }
-  
+
   // Need at least 2 players for public races
-  if (race.type === 'public' && (!players || players.length < 2)) {
+  if (!players || players.length < 2) {
     console.log(`Not enough players (${players ? players.length : 0}) in public race ${code} to start countdown`);
     return;
   }
@@ -831,7 +1357,7 @@ const startPracticeCountdown = async (io, code) => {
     }
     
     // Broadcast countdown start - 3 seconds for practice mode
-    io.to(code).emit('race:countdown', { seconds: 3 });
+    io.to(code).emit('race:countdown', { seconds: 3, code });
     
     // Wait 3 seconds and start the race
     setTimeout(() => startRace(io, code), 3000);
@@ -865,7 +1391,7 @@ const startCountdown = async (io, code) => {
     }
     
     // Broadcast countdown start - 5 seconds for multiplayer races
-    io.to(code).emit('race:countdown', { seconds: 5 });
+    io.to(code).emit('race:countdown', { seconds: 5, code });
     
     // Wait 5 seconds and start the race
     setTimeout(() => startRace(io, code), 5000);
@@ -1047,7 +1573,7 @@ const checkForInactivePlayers = (io, code) => {
     }, INACTIVITY_WARNING_DELAY);
     
     // Set kick timer
-    const kickTimer = setTimeout(() => {
+    const kickTimer = setTimeout(async () => { // Make the callback async
       console.log(`Kicking inactive player ${inactivePlayer.netid} from lobby ${code}`);
       
       // Send kick event to the inactive player
@@ -1071,9 +1597,10 @@ const checkForInactivePlayers = (io, code) => {
           .catch(err => console.error(`Error removing inactive player from lobby_players table:`, err));
       }
       
-      // Notify other players
+      // Notify other players (needs async handling)
+      const updatedPlayersClientDataKick = await Promise.all(updatedPlayers.map(p => getPlayerClientData(p)));
       io.to(code).emit('race:playersUpdate', {
-        players: updatedPlayers.map(p => getPlayerClientData(p))
+        players: updatedPlayersClientDataKick
       });
       
       // Broadcast player kicked message

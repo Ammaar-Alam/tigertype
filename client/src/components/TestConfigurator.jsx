@@ -33,6 +33,7 @@ function TestConfigurator({
   setRaceState,
   loadNewSnippet,
   onShowLeaderboard,
+  isLobby = false,
 }) {
 
   React.useEffect(() => {
@@ -163,8 +164,8 @@ function TestConfigurator({
   );
 
   return (
-    // Main container - now a row
-    <div className="test-configurator">
+    // Main container
+    <div className={`test-configurator ${isLobby ? 'lobby' : ''}`}>
 
       {/* Mode Selection Group */}
       <div className="config-section mode-selection">

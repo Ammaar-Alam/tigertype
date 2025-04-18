@@ -47,8 +47,6 @@ function Typing({
   const [lastTabPress, setLastTabPress] = useState(0);
   const [snippetId, setSnippetId] = useState(null);
   const [tipIndex, setTipIndex] = useState(Math.floor(Math.random() * TYPING_TIPS.length));
-  const [countdown, setCountdown] = useState(null);
-  const countdownRef = useRef(null);
   const [tipVisible, setTipVisible] = useState(true);
   const tipContentRef = useRef(TYPING_TIPS[tipIndex]);
   const [isShaking, setIsShaking] = useState(false);
@@ -99,7 +97,7 @@ function Typing({
   
   // Rotate through random tips every 5 seconds before race starts
   useEffect(() => {
-    if (raceState.type !== 'practice' && !raceState.inProgress && !countdown) {
+    if (raceState.type !== 'practice' && !raceState.inProgress && !raceState.countdown) {
       const tipInterval = setInterval(() => {
         // Step 1: Hide the current tip
         setTipVisible(false);
@@ -124,7 +122,7 @@ function Typing({
       
       return () => clearInterval(tipInterval);
     }
-  }, [raceState.type, raceState.inProgress, countdown, tipIndex]);
+  }, [raceState.type, raceState.inProgress, raceState.countdown, tipIndex]);
   
   // Update tip content ref when tipIndex changes
   useEffect(() => {
@@ -137,32 +135,16 @@ function Typing({
     
     const handleCountdown = (data) => {
       console.log('Countdown received:', data);
-      setCountdown(data.seconds);
-      
-      if (countdownRef.current) {
-        clearInterval(countdownRef.current);
-      }
-      
-      countdownRef.current = setInterval(() => {
-        setCountdown(prev => {
-          if (prev <= 1) {
-            clearInterval(countdownRef.current);
-            countdownRef.current = null;
-            return null;
-          }
-          return prev - 1;
-        });
-      }, 1000);
+      setRaceState(prev => ({
+        ...prev,
+        countdown: data.seconds
+      }));
     };
 
     socket.on('race:countdown', handleCountdown);
     
     return () => {
       socket.off('race:countdown', handleCountdown);
-      if (countdownRef.current) {
-        clearInterval(countdownRef.current);
-        countdownRef.current = null;
-      }
     };
   }, [socket, raceState.type, raceState.inProgress, raceState.completed]);
   
@@ -196,9 +178,6 @@ function Typing({
   // Clean up on unmount
   useEffect(() => {
     return () => {
-      if (countdownRef.current) {
-        clearInterval(countdownRef.current);
-      }
     };
   }, []);
 
@@ -799,7 +778,7 @@ function Typing({
     return (
       <div className="stats countdown-stats">
         <div className="stat-item countdown-item">
-          <span className="countdown-value">{countdown}</span>
+          <span className="countdown-value">{raceState.countdown}</span>
         </div>
       </div>
     );
@@ -844,7 +823,7 @@ function Typing({
     } 
     // For race mode
     else {
-      if (countdown !== null) {
+      if (raceState.countdown !== null) {
         return getCountdown();
       } else if (!raceState.inProgress) {
         return getTips();

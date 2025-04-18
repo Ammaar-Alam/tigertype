@@ -1,0 +1,610 @@
+/* Lobby Page Styles */
+.lobby-page {
+  padding-top: 5vh;
+  max-width: 1200px;
+  margin: 0 auto;
+  position: relative;
+}
+
+.lobby-container {
+  background-color: var(--container-color);
+  padding: 2rem;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/* ──────────────────────────────────────────────────────────────── */
+/* Header                                                          */
+/* ──────────────────────────────────────────────────────────────── */
+.lobby-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 1rem;
+}
+
+.lobby-header h1 {
+  color: var(--princeton-orange);
+  margin: 0;
+  font-size: 1.8rem;
+  font-weight: 600;
+}
+
+.lobby-code-display {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background-color: var(--type-container-color);
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  border: 1px solid var(--border-color);
+}
+
+.lobby-code-display span {
+  color: var(--subtle-text-color);
+}
+
+.lobby-code-display strong {
+  font-family: monospace;
+  font-size: 1.1rem;
+  color: var(--princeton-orange);
+  letter-spacing: 1px;
+}
+
+.lobby-code-display button {
+  background: none;
+  border: none;
+  color: var(--subtle-text-color);
+  cursor: pointer;
+  font-size: 1.1rem;
+  padding: 0 0.3rem;
+  transition: color 0.2s;
+}
+
+.lobby-code-display button:hover {
+  color: var(--princeton-orange);
+}
+
+.copied-message {
+  font-size: 0.8rem;
+  color: var(--success-color);
+  margin-left: 0.5rem;
+  animation: fadeInOut 2s forwards;
+}
+
+@keyframes fadeInOut {
+  0% { opacity: 0; }
+  10% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.leave-lobby-button {
+  background-color: var(--danger-bg-color);
+  color: white;
+  border: none;
+  padding: 0.6rem 1.2rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background-color 0.2s;
+}
+
+.leave-lobby-button:hover {
+  background-color: var(--danger-color);
+}
+
+/* Countdown Display */
+.lobby-countdown {
+  text-align: center;
+  font-size: 2rem;
+  font-weight: bold;
+  color: var(--princeton-orange);
+  padding: 2rem 0;
+  animation: pulse 1s infinite;
+}
+
+.lobby-countdown .countdown-value {
+  font-size: 3rem;
+  margin-left: 0.5rem;
+}
+
+/* ──────────────────────────────────────────────────────────────── */
+/* Main Content Layout                                             */
+/* ──────────────────────────────────────────────────────────────── */
+.lobby-main-content {
+  display: flex;
+  gap: 2rem;
+  align-items: flex-start;
+}
+
+/* ──────────────────────────────────────────────────────────────── */
+/* Settings Column                                                 */
+/* ──────────────────────────────────────────────────────────────── */
+.lobby-left-column {
+  flex: 1;
+  min-width: 300px;
+  padding: 1.5rem;
+  background-color: var(--type-container-color);
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  position: relative;
+  min-height: 23vh;
+}
+
+.lobby-settings {
+  background-color: transparent;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  overflow: visible;
+}
+
+.lobby-settings h2 {
+  margin: 0 0 1.2rem 0;
+  color: var(--heading-color);
+  font-size: 1.3rem;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 0.6rem;
+}
+
+/* --- TestConfigurator overrides for vertical lobby layout --- */
+.lobby-settings .test-configurator {
+  padding: 0;
+  box-shadow: none;
+  border: none;
+  background-color: transparent;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow: visible;
+}
+
+/* Mode button cluster */
+.lobby-settings .test-configurator .mode-selection {
+  gap: 18px;
+}
+
+/* Remove horizontal separator from original horizontal bar */
+.lobby-settings .test-configurator .config-separator {
+  display: none;
+}
+
+/* Base state for conditional option wrappers — hidden */
+.lobby-settings .test-configurator .options-wrapper {
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  transform: translateY(-12px);
+  transition: max-height 0.35s ease, opacity 0.35s ease, transform 0.35s ease;
+  pointer-events: none;
+}
+
+/* Visible state when React adds .visible */
+.lobby-settings .test-configurator .options-wrapper.visible {
+  max-height: 400px;
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+/* Inner rows */
+.lobby-settings .test-configurator .snippet-filters-inner,
+.lobby-settings .test-configurator .duration-selection-inner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  padding: 2px 0;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Fine‑tune dropdown pills */
+.lobby-settings .test-configurator .config-select {
+  min-width: 130px;
+}
+
+/* Vertical separator inside filter rows */
+.lobby-settings .test-configurator .config-separator-inner {
+  width: 1px;
+  height: 16px;
+  background-color: var(--border-color-light);
+}
+
+/* Leaderboard button */
+.lobby-settings .test-configurator .leaderboard-button-section {
+  /* Hide the leaderboard button when TestConfigurator is used in Lobby */
+  display: none;
+  /* Original margin preserved below in case needed elsewhere or restored later */
+  /* margin-top: 18px; */
+  /* justify-content: flex-start; */
+}
+
+/* ──────────────────────────────────────────────────────────────── */
+/* Players / Controls Column                                       */
+/* ──────────────────────────────────────────────────────────────── */
+.lobby-right-column {
+  flex: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  padding: 1.5rem;
+  background-color: var(--type-container-color);
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+}
+
+/* Player Grid Area */
+.lobby-players {
+  background-color: transparent;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+}
+
+.lobby-players h2 {
+  margin-top: 0;
+  margin-bottom: 1.5rem;
+  color: var(--heading-color);
+  font-size: 1.3rem;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 0.5rem;
+}
+
+.player-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 1rem;
+  max-width: 100%;
+}
+
+.lobby-page .player-card {
+  background-color: var(--container-color);
+  border-radius: 6px;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  border: 1px solid var(--border-color);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+  position: relative;
+  min-height: 120px;
+  justify-content: center;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.lobby-page .player-card:hover:not(.empty-slot) {
+  transform: translateY(-3px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* Make profile widget clickable */
+.lobby-page .profile-widget-clickable {
+  cursor: pointer;
+  width: 100%;
+}
+
+.lobby-page .player-card.empty-slot {
+  border: 2px dashed var(--border-color);
+  background-color: transparent;
+  color: var(--subtle-text-color);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-style: italic;
+  box-shadow: none;
+  min-height: 120px;
+}
+
+.lobby-page .player-card .profile-widget {
+  margin-bottom: 0.5rem;
+  text-decoration: none;
+  color: inherit;
+}
+.lobby-page .player-card .profile-widget:hover {
+  text-decoration: none;
+}
+
+.lobby-page .player-status {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.lobby-page .host-tag,
+.lobby-page .ready-tag,
+.lobby-page .not-ready-tag {
+  padding: 0.2rem 0.5rem;
+  border-radius: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.lobby-page .host-tag {
+  background-color: rgba(245, 128, 37, 0.2);
+  color: var(--princeton-orange);
+  border: 1px solid rgba(245, 128, 37, 0.4);
+}
+
+.lobby-page .ready-tag {
+  background-color: rgba(40, 167, 69, 0.2);
+  color: var(--success-color);
+  border: 1px solid rgba(40, 167, 69, 0.4);
+}
+
+.lobby-page .not-ready-tag {
+  background-color: rgba(108, 117, 125, 0.2);
+  color: var(--subtle-text-color);
+  border: 1px solid rgba(108, 117, 125, 0.4);
+}
+
+.kick-button {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  background-color: rgba(220, 53, 69, 0.7);
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  font-size: 0.7rem;
+  font-weight: bold;
+  cursor: pointer;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  line-height: 1;
+  transition: background-color 0.2s, transform 0.2s;
+  padding: 0;
+  opacity: 0.6;
+}
+
+.player-card:hover .kick-button {
+  opacity: 1;
+}
+
+.kick-button:hover {
+  background-color: var(--danger-color);
+  transform: scale(1.1);
+}
+
+/* Controls Area */
+.lobby-controls {
+  display: flex;
+  justify-content: center;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-color);
+  margin-top: auto;
+}
+
+.start-race-button,
+.lobby-page .ready-button {
+  padding: 0.8rem 2rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: none;
+}
+
+.start-race-button {
+  background-color: var(--princeton-orange);
+  color: white;
+}
+
+.start-race-button:hover:not(:disabled) {
+  background-color: #e0701b; /* Darker orange */
+  transform: translateY(-1px);
+  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.2);
+}
+
+.start-race-button:disabled {
+  background-color: #aaa;
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.lobby-page .ready-button {
+  background-color: var(--subtle-bg-color);
+  color: var(--mode-text-color);
+  border: 1px solid var(--border-color);
+}
+
+.lobby-page .ready-button:hover {
+  background-color: var(--hover-bg-color);
+  border-color: var(--princeton-orange);
+}
+
+.lobby-page .ready-button.is-ready {
+  background-color: var(--success-bg-color);
+  color: var(--success-color);
+  border-color: var(--success-color);
+  font-weight: bold;
+}
+
+/* ──────────────────────────────────────────────────────────────── */
+/* Race/Results Containers                                         */
+/* ──────────────────────────────────────────────────────────────── */
+.lobby-race-area {
+  margin-top: 2rem;
+}
+
+.lobby-race-active,
+.lobby-results {
+  padding: 1.5rem;
+  background-color: var(--type-container-color);
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+}
+
+.lobby-results h2 {
+  text-align: center;
+  color: var(--princeton-orange);
+  margin-bottom: 1.5rem;
+}
+
+.lobby-results button {
+  margin-top: 1rem;
+  padding: 0.7rem 1.5rem;
+  font-size: 1rem;
+  font-weight: 500;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 1px solid var(--border-color);
+  background-color: var(--subtle-bg-color);
+  color: var(--mode-text-color);
+  display: block;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.lobby-results button:hover {
+  background-color: var(--hover-bg-color);
+  border-color: var(--princeton-orange);
+}
+
+/* ──────────────────────────────────────────────────────────────── */
+/* Error Page                                                      */
+/* ──────────────────────────────────────────────────────────────── */
+.error-page {
+  text-align: center;
+  padding: 3rem;
+}
+
+.error-page h2 {
+  color: var(--danger-color);
+}
+
+.error-page button {
+  background-color: var(--princeton-orange);
+  color: white;
+  border: none;
+  padding: 0.6rem 1.2rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background-color 0.2s;
+  margin-top: 1rem;
+}
+
+.error-page button:hover {
+  background-color: #e0701b;
+}
+
+/* ──────────────────────────────────────────────────────────────── */
+/* Player Stats Modal Content                                      */
+/* ──────────────────────────────────────────────────────────────── */
+.player-stats-modal-content {
+  padding: 1rem;
+  line-height: 1.7;
+}
+
+.player-stats-modal-content p {
+  margin: 0.6rem 0;
+  font-size: 1rem;
+}
+
+/* ──────────────────────────────────────────────────────────────── */
+/* Responsive Adjustments                                          */
+/* ──────────────────────────────────────────────────────────────── */
+@media (max-width: 992px) { /* two‑column to stacked */
+  .lobby-main-content {
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
+  .lobby-left-column,
+  .lobby-right-column {
+    min-width: 100%;
+    flex: none;
+    padding: 1.5rem;
+    background-color: var(--type-container-color);
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+  }
+
+  .lobby-right-column {
+    gap: 1rem;
+  }
+
+  .player-grid {
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  }
+
+  /* Convert TestConfigurator back to horizontal row on tablets */
+  .lobby-settings .test-configurator {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 12px 20px;
+  }
+
+  .lobby-settings .test-configurator .options-wrapper {
+    width: 100%;
+    max-height: 0;
+    opacity: 0;
+    overflow: hidden;
+    transform: translateY(-10px);
+  }
+
+  .lobby-settings .test-configurator .options-wrapper.visible {
+    max-height: 350px;
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 768px) {
+  .lobby-container {
+    padding: 1.5rem;
+  }
+
+  .lobby-header {
+    flex-direction: column;
+    gap: 1rem;
+    align-items: flex-start;
+  }
+
+  .lobby-code-display {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .player-grid {
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 0.8rem;
+  }
+
+  .player-card {
+    padding: 0.8rem;
+    min-height: 110px;
+  }
+
+  .lobby-left-column,
+  .lobby-right-column {
+    padding: 1rem;
+  }
+
+  .lobby-settings .test-configurator {
+    gap: 10px;
+  }
+
+  .lobby-settings .test-configurator .mode-selection {
+    gap: 14px;
+  }
+
+  .lobby-settings .test-configurator .config-select {
+    min-width: 0;
+  }
+}

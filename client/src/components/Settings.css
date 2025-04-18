@@ -96,6 +96,7 @@
   font-size: 1rem;
   font-weight: 400;
   color: var(--mode-text-color);
+  align-self: baseline;
 }
 
 .setting-item select {

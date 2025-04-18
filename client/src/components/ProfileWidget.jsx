@@ -6,7 +6,7 @@ import './ProfileWidget.css';
 // Default profile image
 import defaultProfileImage from '../assets/icons/default-profile.svg';
 
-function ProfileWidget({ user }) {
+function ProfileWidget({ user, onClick }) { // Added onClick prop
   const [showProfileModal, setShowProfileModal] = useState(false);
 
   // Parse numeric value to handle string or number
@@ -15,37 +15,57 @@ function ProfileWidget({ user }) {
     return typeof value === 'string' ? parseFloat(value) : value;
   };
 
-  const openProfileModal = () => {
-    setShowProfileModal(true);
-  };
-
-  const closeProfileModal = () => {
-    setShowProfileModal(false);
-  };
-
-  return (
-    <>
-      <div className="profile-widget" onClick={openProfileModal}>
-        <div className="profile-image">
-          <img 
+  const content = (
+    <div className="profile-widget">
+      <div className="profile-image">
+        <img
             src={ user?.avatar_url ? user.avatar_url : defaultProfileImage } 
-            alt="Profile"
-          />
-        </div>
-        <div className="profile-info">
-          <div className="profile-name">{user?.netid || 'Guest'}</div>
+          alt="Profile"
+        />
+      </div>
+      <div className="profile-info">
+        <div className="profile-name">{user?.netid || 'Guest'}</div>
           <div className="profile-details">
             {user?.avg_wpm
               ? `${Math.round(parseNumericValue(user.avg_wpm))} WPM`
               : 'No stats yet'
-            }
-          </div>
+          }
         </div>
       </div>
-      {showProfileModal && (<ProfileModal 
-      isOpen={showProfileModal} 
-      onClose={closeProfileModal} 
-      />)}
+    </div>
+  );
+
+  // If onClick is provided, wrap content in a button/div and attach handler
+  if (onClick) {
+    return (
+      <div className="profile-widget-clickable" onClick={onClick} role="button" tabIndex={0}>
+        {content}
+      </div>
+    );
+  }
+
+    // Otherwise, handle the modal ourselves
+    const openProfileModal = () => {
+      setShowProfileModal(true);
+    };
+  
+    const closeProfileModal = () => {
+      setShowProfileModal(false);
+    };
+
+  // Otherwise, wrap in the default Link
+  return (
+    <>
+      <div className="profile-widget-clickable" onClick={openProfileModal} role="button" tabIndex={0}>
+        {content}
+      </div>
+      
+      {showProfileModal && (
+        <ProfileModal 
+          isOpen={showProfileModal}
+          onClose={closeProfileModal}
+        />
+      )}
     </>
   );
 }
@@ -57,7 +77,8 @@ ProfileWidget.propTypes = {
     avg_wpm: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
     avg_accuracy: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
     races_completed: PropTypes.oneOfType([PropTypes.string, PropTypes.number])
-  })
+  }),
+  onClick: PropTypes.func // Added prop type for onClick
 };
 
 export default ProfileWidget;

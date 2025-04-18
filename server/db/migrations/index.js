@@ -29,7 +29,7 @@ const MIGRATIONS = [
 
         CREATE TABLE IF NOT EXISTS snippets (
           id SERIAL PRIMARY KEY,
-          text TEXT NOT NULL,
+          text TEXT NOT NULL UNIQUE,
           source VARCHAR(255),
           category VARCHAR(100),
           difficulty INT DEFAULT 1,
@@ -187,6 +187,121 @@ const MIGRATIONS = [
         DROP TABLE IF EXISTS partial_sessions;
       `);
       console.log('Migration reverted: Dropped partial_sessions table');
+    }
+  },
+  {
+    version: 6,
+    description: 'Add source URL and IDs to snippets table',
+    up: async (client) => {
+      console.log('Running migration to add source URL and IDs to snippets table...');
+      await client.query(`
+        ALTER TABLE snippets
+        ADD COLUMN IF NOT EXISTS evaluation_url TEXT, -- Stores the full URL of the evaluation page
+        ADD COLUMN IF NOT EXISTS source_course_id VARCHAR(10), -- Stores course ID like '002065'
+        ADD COLUMN IF NOT EXISTS source_term_id VARCHAR(4); -- Stores term ID like '1252'
+      `);
+      console.log('Successfully added source columns to snippets table.');
+    },
+    down: async (client) => {
+      // Optional: Add logic to remove the columns if needed for rollback
+      console.log('Reverting migration to remove source columns from snippets table...');
+      await client.query(`
+        ALTER TABLE snippets
+        DROP COLUMN IF EXISTS evaluation_url,
+        DROP COLUMN IF EXISTS source_course_id,
+        DROP COLUMN IF EXISTS source_term_id;
+      `);
+       console.log('Successfully removed source columns from snippets table.');
+    }
+  }
+  ,
+  {
+    version: 6,
+    description: 'Add optimistic concurrency version column to lobbies table',
+    up: async (client) => {
+      // Add a harmless integer column used for optimistic concurrency control.
+      // We keep the default at 0 so legacy rows start with a defined value.
+      await client.query(`
+        ALTER TABLE lobbies
+        ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 0;
+      `);
+      // Create an index to make look‑ups on (id, version) fast if the pattern is
+      // ever used in the future.  This is safe to run even if the index already
+      // exists thanks to the IF NOT EXISTS flag.
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_lobbies_version ON lobbies(version);
+      `);
+      console.log('Migration complete: added version column to lobbies table');
+    },
+    down: async (client) => {
+      await client.query(`
+        ALTER TABLE lobbies
+        DROP COLUMN IF EXISTS version;
+      `);
+      await client.query('DROP INDEX IF EXISTS idx_lobbies_version;');
+      console.log('Migration reverted: removed version column from lobbies table');
+    }
+  },
+  {
+    version: 7,
+    description: 'Add Princeton course details to snippets table',
+    up: async (client) => {
+      console.log('Running migration to add Princeton course details to snippets table...');
+      await client.query(`
+        ALTER TABLE public.snippets
+          ADD COLUMN IF NOT EXISTS princeton_course_url TEXT,
+          ADD COLUMN IF NOT EXISTS term_code VARCHAR(4),
+          ADD COLUMN IF NOT EXISTS course_id VARCHAR(6),
+          ADD COLUMN IF NOT EXISTS course_name TEXT;
+      `);
+      console.log('Successfully added Princeton course columns to snippets table.');
+    },
+    down: async (client) => {
+      console.log('Reverting migration to remove Princeton course details from snippets table...');
+      await client.query(`
+        ALTER TABLE public.snippets
+          DROP COLUMN IF EXISTS princeton_course_url,
+          DROP COLUMN IF EXISTS term_code,
+          DROP COLUMN IF EXISTS course_id,
+          DROP COLUMN IF EXISTS course_name;
+      `);
+       console.log('Successfully removed Princeton course columns from snippets table.');
+    }
+  },
+  {
+    version: 8,
+    description: 'Ensure unique constraint on snippets.text',
+    up: async (client) => {
+      console.log('Running migration to ensure unique constraint on snippets.text...');
+      // Check if the constraint already exists
+      const constraintExists = await client.query(`
+        SELECT constraint_name
+        FROM information_schema.table_constraints
+        WHERE table_schema = 'public'
+          AND table_name = 'snippets'
+          AND constraint_type = 'UNIQUE'
+          AND constraint_name = 'snippets_text_key'; -- Use a specific name
+      `);
+
+      if (constraintExists.rowCount === 0) {
+        console.log('Unique constraint snippets_text_key not found on snippets.text, adding it...');
+        await client.query(`
+          ALTER TABLE public.snippets
+          ADD CONSTRAINT snippets_text_key UNIQUE (text);
+        `);
+        console.log('Successfully added UNIQUE constraint snippets_text_key to snippets.text.');
+      } else {
+        console.log('Unique constraint snippets_text_key already exists on snippets.text.');
+      }
+    },
+    down: async (client) => {
+      // Optional: Drop the constraint if it exists
+      console.log('Reverting migration to remove unique constraint from snippets.text...');
+      await client.query(`
+        ALTER TABLE public.snippets
+        DROP CONSTRAINT IF EXISTS snippets_text_key;
+      `);
+      console.log('Successfully removed unique constraint snippets_text_key from snippets.text (if it existed).');
     }
   }
 ];
