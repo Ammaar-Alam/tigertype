@@ -473,7 +473,7 @@
   grid-template-columns: auto 1fr;
   align-items: center;
   gap: 1.5rem;
-  padding-top: 0.8rem;
+  padding-top: 1rem;
   min-height: 60px;
 }
 

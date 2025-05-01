@@ -155,7 +155,12 @@ body {
   flex-basis: 60%; 
   justify-content: flex-start;
   align-self: anchor-center;
-  right: 10vh;
+}
+
+@media (min-width: 900px) {
+  .landing-right-column {
+    right: 5vh;
+  }
 }
 
 .landing-right-column h2 {

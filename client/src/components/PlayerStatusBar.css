@@ -28,6 +28,7 @@
   color: var(--primary-color);
   border-left: 4px solid var(--primary-color);
   padding-left: 6px;
+  padding-right: 5px;
   /* subtle tinted background */
   background-color: rgba(var(--primary-color-rgb), 0.1);
   border-radius: 4px;
