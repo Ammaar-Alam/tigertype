@@ -3,13 +3,13 @@ import './PlayerStatusBar.css';
 import defaultProfileImage from '../assets/icons/default-profile.svg';
 import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
-import ProfileModal from './ProfileModal.jsx';
+import { useNavigate, useLocation } from 'react-router-dom';
 
 function PlayerStatusBar({ players, isRaceInProgress, currentUser, onReadyClick }) {
   const [enlargedAvatar, setEnlargedAvatar] = useState(null);
   const { authenticated, user } = useAuth();
-  const [selectedProfileNetid, setSelectedProfileNetid] = useState(null);
-  const [showProfileModal, setShowProfileModal] = useState(false);
+  const navigate = useNavigate();
+  const location = useLocation();
   // State for storing fetched titles per player netid
   const [playerTitlesMap, setPlayerTitlesMap] = useState({});
   
@@ -19,8 +19,7 @@ function PlayerStatusBar({ players, isRaceInProgress, currentUser, onReadyClick 
   
   const handleAvatarClick = (avatar, netid) => {
     if (authenticated) {
-      setSelectedProfileNetid(netid);
-      setShowProfileModal(true);
+      navigate(`/profile/${netid}`, { state: { backgroundLocation: location } });
     } else {
       setEnlargedAvatar({ url: avatar || defaultProfileImage, netid });
       // Prevent scrolling when modal is open
@@ -200,14 +199,6 @@ function PlayerStatusBar({ players, isRaceInProgress, currentUser, onReadyClick 
             </div>
           </div>
         </div>
-      )}
-      {/* Profile Modal for viewing user profiles (authenticated users) */}
-      {authenticated && showProfileModal && (
-        <ProfileModal
-          isOpen={showProfileModal}
-          onClose={() => setShowProfileModal(false)}
-          netid={selectedProfileNetid}
-        />
       )}
     </>
   );

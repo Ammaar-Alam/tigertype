@@ -1,8 +1,8 @@
 // merge conflict debugged with ai
 
 import PropTypes from 'prop-types';
-import ProfileModal from './ProfileModal.jsx';
 import { useState, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import './ProfileWidget.css';
 import axios from 'axios';
 
@@ -11,7 +11,6 @@ import defaultProfileImage from '../assets/icons/default-profile.svg';
 
 // Accept a layout prop ('default' or 'navbar')
 function ProfileWidget({ user, onClick, layout = 'default' }) {
-  const [showProfileModal, setShowProfileModal] = useState(false);
   // Local state for titles (use provided or fetch)
   const [titles, setTitles] = useState(user?.titles || []);
 
@@ -21,13 +20,11 @@ function ProfileWidget({ user, onClick, layout = 'default' }) {
     return typeof value === 'string' ? parseFloat(value) : value;
   };
   
-  // Define these functions at component level, not inside conditional branches
-  const openProfileModal = () => {
-    setShowProfileModal(true);
-  };
+  const navigate = useNavigate();
+  const location = useLocation();
 
-  const closeProfileModal = () => {
-    setShowProfileModal(false);
+  const openProfileModal = () => {
+    navigate(`/profile/${user?.netid}`, { state: { backgroundLocation: location } });
   };
 
   // Fetch titles if not provided
@@ -90,17 +87,9 @@ function ProfileWidget({ user, onClick, layout = 'default' }) {
 
   // Otherwise, use our own modal
   return (
-    <>
-      <div className="profile-widget-clickable" onClick={openProfileModal} role="button" tabIndex={0}>
-        {content}
-      </div>
-      
-      {showProfileModal && (<ProfileModal 
-      netid={user?.netid}
-      isOpen={showProfileModal} 
-      onClose={closeProfileModal} 
-      />)}
-    </>
+    <div className="profile-widget-clickable" onClick={openProfileModal} role="button" tabIndex={0}>
+      {content}
+    </div>
   );
 }
 

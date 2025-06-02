@@ -1,4 +1,4 @@
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useRace } from '../context/RaceContext';
 import { useAuth } from '../context/AuthContext';
 import { useState, useCallback, useEffect } from 'react';
@@ -8,16 +8,13 @@ import './Results.css';
 import axios from 'axios';
 import defaultProfileImage from '../assets/icons/default-profile.svg';
 import PropTypes from 'prop-types';
-import ProfileModal from './ProfileModal.jsx';
 
 function Results({ onShowLeaderboard }) {
   const navigate = useNavigate();
   const { raceState, typingState, resetRace, joinPublicRace } = useRace();
   const { isRunning, endTutorial } = useTutorial();
   const { user } = useAuth();
-  // State for profile modal
-  const [selectedProfileNetid, setSelectedProfileNetid] = useState(null);
-  const [showProfileModal, setShowProfileModal] = useState(false);
+  const location = useLocation();
   // State for storing fetched titles for result players
   const [resultTitlesMap, setResultTitlesMap] = useState({});
   
@@ -58,17 +55,8 @@ function Results({ onShowLeaderboard }) {
   
   // Handle avatar click to show profile modal
   const handleAvatarClick = (_avatar, netid) => {
-    setSelectedProfileNetid(netid);
-    setShowProfileModal(true);
-    document.body.style.overflow = 'hidden';
+    navigate(`/profile/${netid}`, { state: { backgroundLocation: location } });
   };
-  
-  // Close profile modal
-  const closeModal = useCallback(() => {
-    setShowProfileModal(false);
-    setSelectedProfileNetid(null);
-    document.body.style.overflow = '';
-  }, []);
   
   // Add handler to queue another public race
   const handleQueueNext = () => {
@@ -338,14 +326,6 @@ function Results({ onShowLeaderboard }) {
         </button>
       </div>
       
-      {/* Profile Modal for viewing user profiles */}
-      {showProfileModal && (
-        <ProfileModal
-          isOpen={showProfileModal}
-          onClose={closeModal}
-          netid={selectedProfileNetid}
-        />
-      )}
     </>
   );
 }
