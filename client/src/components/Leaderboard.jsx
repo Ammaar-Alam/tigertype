@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import PropTypes from 'prop-types';
 import './Leaderboard.css';
 import defaultProfileImage from '../assets/icons/default-profile.svg';
-import ProfileModal from './ProfileModal.jsx';
+import { useNavigate, useLocation } from 'react-router-dom';
 
 const DURATIONS = [15, 30, 60, 120];
 const PERIODS = ['daily', 'alltime'];
@@ -38,9 +38,8 @@ function Leaderboard({ defaultDuration = 15, defaultPeriod = 'alltime', layoutMo
   const [leaderboard, setLeaderboard] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  // State to track which user's profile to view
-  const [selectedProfileNetid, setSelectedProfileNetid] = useState(null);
-  const [showProfileModal, setShowProfileModal] = useState(false);
+  const navigate = useNavigate();
+  const location = useLocation();
 
   useEffect(() => {
     // Fetch from API directly if socket isn't available (user not logged in)
@@ -98,10 +97,8 @@ function Leaderboard({ defaultDuration = 15, defaultPeriod = 'alltime', layoutMo
   }, [socket, duration, period]);
 
   const handleAvatarClick = (_avatarUrl, netid) => {
-    // Only proceed if user is authenticated via CAS
     if (!authenticated) return;
-    setSelectedProfileNetid(netid);
-    setShowProfileModal(true);
+    navigate(`/profile/${netid}`, { state: { backgroundLocation: location } });
   };
 
   return (
@@ -228,14 +225,6 @@ function Leaderboard({ defaultDuration = 15, defaultPeriod = 'alltime', layoutMo
         </>
       )}
 
-      {/* Profile Modal for viewing user profiles (only for authenticated users) */}
-      {authenticated && showProfileModal && (
-        <ProfileModal
-          isOpen={showProfileModal}
-          onClose={() => setShowProfileModal(false)}
-          netid={selectedProfileNetid}
-        />
-      )}
     </>
   );
 }

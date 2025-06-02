@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom'; // Import useLocation
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { lazy, Suspense, useState, useEffect } from 'react';
 import './App.css';
 
@@ -15,6 +15,7 @@ import Modal from './components/Modal';
 import Leaderboard from './components/Leaderboard';
 import TutorialGuide from './components/TutorialGuide';
 import DeviceGuard from './components/DeviceGuard';
+import ProfileModal from './components/ProfileModal';
 
 // Lazy-loaded pages for code splitting
 const Landing = lazy(() => import('./pages/Landing'));
@@ -132,6 +133,31 @@ function AppRoutes() {
   );
 }
 
+function AppContent() {
+  const location = useLocation();
+  const state = location.state || {};
+  const backgroundLocation = state.backgroundLocation;
+
+  const ProfileModalRoute = () => {
+    const navigate = useNavigate();
+    const { netid } = useParams();
+    const handleClose = () => navigate(-1);
+    return <ProfileModal isOpen={true} onClose={handleClose} netid={netid} />;
+  };
+
+  return (
+    <>
+      <AppRoutes location={backgroundLocation || location} />
+      {backgroundLocation && (
+        <Routes>
+          <Route path="/profile/:netid" element={<ProfileModalRoute />} />
+        </Routes>
+      )}
+      <TutorialGuide />
+    </>
+  );
+}
+
 function App() {
   return (
     <Router>
@@ -140,9 +166,7 @@ function App() {
           <SocketProvider>
             <RaceProvider>
               <DeviceGuard>
-                <AppRoutes />
-                {/* Render the tutorial guide */}
-                <TutorialGuide />
+                <AppContent />
               </DeviceGuard>
             </RaceProvider>
           </SocketProvider>
