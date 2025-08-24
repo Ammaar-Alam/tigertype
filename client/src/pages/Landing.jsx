@@ -16,7 +16,7 @@ const POST_CORRECTION_PAUSE_MS = 250;
 const PAUSE_DURATION_MS = 3000;
 
 function Landing() {
-  const { login } = useAuth();
+  const { login, authenticated } = useAuth();
   const [fullText, setFullText] = useState(''); // Start empty, effect sets initial text
   const [charIndex, setCharIndex] = useState(0);
   const [stage, setStage] = useState(''); // Start empty, mount effect sets it
@@ -258,13 +258,15 @@ function Landing() {
           {/* Left Column */}
           <div className="landing-left-column">
             <img src={tigerLogo} alt="TigerType Logo" className="landing-logo-large" />
-            <button
-              onClick={!isMobile ? handleLogin : undefined}
-              disabled={isMobile}
-              className="login-button-left"
-            >
-              {isMobile ? 'Log In (Desktop Only)' : 'Log In'}
-            </button>
+            {!authenticated && (
+              <button
+                onClick={!isMobile ? handleLogin : undefined}
+                disabled={isMobile}
+                className="login-button-left"
+              >
+                {isMobile ? 'Log In (Desktop Only)' : 'Log In'}
+              </button>
+            )}
           </div>
 
           {/* Right Column */}

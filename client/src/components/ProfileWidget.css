@@ -12,6 +12,7 @@
 .profile-widget-clickable {
   display: block;
   width: 100%;
+  cursor: pointer;
 }
 
 .profile-widget:hover {

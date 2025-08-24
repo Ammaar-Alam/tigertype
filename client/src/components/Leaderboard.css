@@ -119,6 +119,11 @@ h2 {
   flex-shrink: 0;
 }
 
+.leaderboard-avatar.disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
 .leaderboard-avatar:hover {
   transform: scale(1.08);
   border-color: #F58025;

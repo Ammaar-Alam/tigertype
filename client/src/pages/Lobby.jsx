@@ -301,14 +301,35 @@ function Lobby() {
               </div>
               <div className="lobby-controls">
                 {isHost ? (
-                  <button
-                    className="start-race-button"
-                    onClick={startPrivateRace}
-                    disabled={raceState.players?.length < 2 && !raceState.players?.every(p => p.ready === true)} // Require 2 players
-                    title={raceState.players?.length < 2 ? "Need at least 2 players to start" : "Start the race!"}
-                  >
-                    Start Race
-                  </button>
+                  <div className="start-controls">
+                    <button
+                      className="start-race-button"
+                      onClick={startPrivateRace}
+                      disabled={
+                        (raceState.players?.length || 0) < 2 ||
+                        !(raceState.players || []).every(p => p.ready === true)
+                      }
+                      title={
+                        (raceState.players?.length || 0) < 2
+                          ? 'Need at least 2 players to start'
+                          : (!(raceState.players || []).every(p => p.ready === true)
+                              ? 'All players must be Ready'
+                              : 'Start the race!')
+                      }
+                    >
+                      Start Race
+                    </button>
+                    {(
+                      (raceState.players?.length || 0) < 2 ||
+                      !(raceState.players || []).every(p => p.ready === true)
+                    ) && (
+                      <div className="start-hint" aria-live="polite">
+                        {(raceState.players?.length || 0) < 2
+                          ? 'Need at least 2 players'
+                          : 'All players must be Ready'}
+                      </div>
+                    )}
+                  </div>
                 ) : (
                   <button
                     className={`ready-button ${raceState.players?.find(p => p.netid === user?.netid)?.ready ? 'is-ready' : ''}`}

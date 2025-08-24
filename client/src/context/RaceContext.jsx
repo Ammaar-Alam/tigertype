@@ -810,7 +810,7 @@ export const RaceProvider = ({ children }) => {
       if (socket && connected) {
         socket.emit('race:progress', {
           code: raceState.code,
-          position: input.length,
+          position: correctChars,
           total: text.length,
           isCompleted: isCompleted // Send explicit completion status to server
         });
