@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useSocket } from './SocketContext';
 import { useAuth } from './AuthContext';
 
@@ -83,6 +83,13 @@ export const RaceProvider = ({ children }) => {
       enabled: false,
       duration: 15          // Default duration in seconds
     },
+    training: {
+      enabled: false,
+      sessionId: null,
+      focusLetters: [],
+      wordPoolSize: 1000,
+      latestStats: null
+    },
     snippetFilters: {       // Filters for snippets
       difficulty: 'all',
       type: 'all',
@@ -109,6 +116,56 @@ export const RaceProvider = ({ children }) => {
     return localStorage.getItem('wordDifficulty') || 'easy'; // 'easy' (200) or 'hard' (1000)
   });
 
+  const createTrainingTracker = () => ({
+    charStats: {},
+    lastKeystrokeTs: null,
+    lastCorrectChars: 0,
+    totalChars: 0,
+    errorCount: 0,
+    correctedErrors: 0
+  });
+
+  const trainingTrackerRef = useRef(createTrainingTracker());
+
+  const resetTrainingTracker = useCallback(() => {
+    trainingTrackerRef.current = createTrainingTracker();
+  }, []);
+
+  const buildTrainingPayload = useCallback(
+    ({ totalErrors = 0, totalChars = 0, durationSeconds = null, wpm = null, accuracy = null } = {}) => {
+      if (!raceState.training?.enabled) {
+        return null;
+      }
+
+      const tracker = trainingTrackerRef.current;
+      const charStats = Object.entries(tracker.charStats || {}).map(([char, stat]) => {
+        const samples = stat.latencySamples || 0;
+        const avgLatency =
+          samples > 0 ? stat.totalLatencyMs / samples : null;
+        return {
+          character: char,
+          exposures: stat.exposures,
+          mistakes: stat.mistakes,
+          extraHits: stat.extraHits,
+          avgLatencyMs: avgLatency,
+          latencySamples: samples
+        };
+      });
+
+      return {
+        sessionId: raceState.training?.sessionId || null,
+        charStats,
+        totalChars: totalChars || tracker.totalChars || 0,
+        errorCount: totalErrors || tracker.errorCount || 0,
+        correctedErrors: tracker.correctedErrors || totalErrors || 0,
+        durationSeconds: durationSeconds ?? null,
+        wpm: wpm != null ? wpm : null,
+        accuracy: accuracy != null ? accuracy : null
+      };
+    },
+    [raceState.training?.enabled, raceState.training?.sessionId]
+  );
+
   // Persist wordDifficulty to localStorage
   useEffect(() => {
     try {
@@ -122,6 +179,14 @@ export const RaceProvider = ({ children }) => {
   useEffect(() => {
     setSnippetError(null);
   }, [snippetDifficulty, snippetCategory, snippetSubject]);
+
+  useEffect(() => {
+    if (raceState.training?.enabled && raceState.training.sessionId) {
+      resetTrainingTracker();
+    } else if (!raceState.training?.enabled) {
+      resetTrainingTracker();
+    }
+  }, [raceState.training?.sessionId, raceState.training?.enabled, resetTrainingTracker]);
 
   // Local typing state
   const [typingState, setTypingState] = useState({
@@ -228,6 +293,21 @@ export const RaceProvider = ({ children }) => {
     // Event handlers
     const handleRaceJoined = (data) => {
       // console.log('Joined race:', data);
+      const nextTrainingState = data.training?.enabled
+        ? {
+            enabled: true,
+            sessionId: data.training.sessionId || null,
+            focusLetters: data.training.focusLetters || [],
+            wordPoolSize: data.training.wordPoolSize || 1000,
+            latestStats: null
+          }
+        : {
+            enabled: false,
+            sessionId: null,
+            focusLetters: [],
+            wordPoolSize: 1000,
+            latestStats: null
+          };
       setRaceState(prev => ({
         ...prev,
         code: data.code,
@@ -236,7 +316,8 @@ export const RaceProvider = ({ children }) => {
         hostNetId: data.hostNetId || null, // Explicitly store hostNetId
         snippet: data.snippet ? { ...data.snippet, text: sanitizeSnippetText(data.snippet.text) } : null,
         settings: data.settings || prev.settings, // Store settings from server
-        players: data.players || []
+        players: data.players || [],
+        training: nextTrainingState
       }));
     };
 
@@ -600,16 +681,28 @@ export const RaceProvider = ({ children }) => {
       };
       
       // Build options with current snippet filters
+      const trainingEnabled = currentState.training?.enabled;
+      const defaultWordPool = wordDifficulty === 'easy' ? 200 : 1000;
       const options = {
-        testMode: currentState.timedTest?.enabled ? 'timed' : 'snippet',
-        testDuration: currentState.timedTest?.duration || 15,
-        wordPoolSize: wordDifficulty === 'easy' ? '200' : '1000', // Map difficulty to size
+        testMode: trainingEnabled
+          ? 'training'
+          : (currentState.timedTest?.enabled ? 'timed' : 'snippet'),
+        testDuration: currentState.timedTest?.duration || (trainingEnabled ? 30 : 15),
+        wordPoolSize: trainingEnabled
+          ? (currentState.training?.wordPoolSize || defaultWordPool)
+          : defaultWordPool,
         snippetFilters: {
           difficulty: difficulty,
           type: category,
           department: subjectValue
         }
       };
+
+      if (trainingEnabled) {
+        options.trainingMode = true;
+        options.trainingFocus = currentState.training?.focusLetters || [];
+        options.trainingWordPoolSize = options.wordPoolSize;
+      }
       
       // console.log('Requesting new practice snippet with options:', options);
       socket.emit('practice:join', options);
@@ -695,6 +788,31 @@ export const RaceProvider = ({ children }) => {
     
     // Calculate current position in the snippet
     const text = raceState.snippet?.text || '';
+    const trainingActive = raceState.training?.enabled;
+    const tracker = trainingTrackerRef.current;
+    if (trainingActive) {
+      tracker.totalChars = Math.max(tracker.totalChars || 0, input.length);
+    }
+
+    const bumpTrainingStat = (charKey, field) => {
+      if (!trainingActive) return;
+      const key = (charKey ?? ' ').toString().slice(0, 2) || ' ';
+      if (!tracker.charStats[key]) {
+        tracker.charStats[key] = {
+          exposures: 0,
+          mistakes: 0,
+          extraHits: 0,
+          totalLatencyMs: 0,
+          latencySamples: 0
+        };
+      }
+      const stat = tracker.charStats[key];
+      const latency = tracker.lastKeystrokeTs != null ? Math.max(0, now - tracker.lastKeystrokeTs) : 0;
+      tracker.lastKeystrokeTs = now;
+      stat[field] += 1;
+      stat.totalLatencyMs += latency;
+      stat.latencySamples += 1;
+    };
     let correctChars = 0;
     let currentErrors = 0;
     let hasError = false;
@@ -726,6 +844,7 @@ export const RaceProvider = ({ children }) => {
     
     // Get previous total errors (persist even after fixes)
     let totalErrors = typingState.errors;
+    const previousCorrectChars = typingState.correctChars || 0;
     
     // If there's a new error (wasn't there in previous input)
     const previousInput = typingState.input;
@@ -740,6 +859,7 @@ export const RaceProvider = ({ children }) => {
     // Only increment error count if this is a new error
     if (isNewError) {
       totalErrors += 1;
+      bumpTrainingStat(text[firstErrorPosition] || ' ', 'mistakes');
     }
     
     // For accuracy calculation:
@@ -808,6 +928,23 @@ export const RaceProvider = ({ children }) => {
       accuracy,
       lockedPosition: newLockedPosition
     });
+
+    if (trainingActive) {
+      const deltaCorrect = Math.max(0, correctChars - previousCorrectChars);
+      if (deltaCorrect > 0) {
+        for (let i = 0; i < deltaCorrect; i += 1) {
+          const position = previousCorrectChars + i;
+          bumpTrainingStat(text[position] || ' ', 'exposures');
+        }
+      }
+      if (input.length > text.length) {
+        bumpTrainingStat('extra', 'extraHits');
+      }
+      tracker.lastCorrectChars = correctChars;
+      tracker.errorCount = totalErrors;
+      tracker.correctedErrors = totalErrors;
+      tracker.totalChars = Math.max(tracker.totalChars || 0, input.length);
+    }
     
     // If the race is still in progress, update progress
     if (raceState.inProgress && !raceState.completed) {
@@ -843,29 +980,53 @@ export const RaceProvider = ({ children }) => {
         }
           
         // Mark as completed locally, ensuring the results array gets the correctly calculated final values
-        setRaceState(prev => ({
-          ...prev,
-          completed: true,
-          // For practice mode, store the CORRECTLY calculated final results directly in state
-          results: prev.type === 'practice' ? [{
-            netid: user?.netid,
-            wpm: finalWpm, // Use final calculated WPM
-            accuracy,
-            completion_time: finalCompletionTime // Use final calculated time (duration for timed tests)
-          }] : prev.results // Keep existing results for multiplayer
-        }));
+        const trainingPayload = buildTrainingPayload({
+          totalErrors,
+          totalChars: input.length,
+          durationSeconds: finalCompletionTime,
+          wpm: finalWpm,
+          accuracy
+        });
+
+        setRaceState(prev => {
+          const nextState = {
+            ...prev,
+            completed: true,
+            results: prev.type === 'practice' ? [{
+              netid: user?.netid,
+              wpm: finalWpm, // Use final calculated WPM
+              accuracy,
+              completion_time: finalCompletionTime // Use final calculated time (duration for timed tests)
+            }] : prev.results // Keep existing results for multiplayer
+          };
+
+          if (trainingPayload && prev.training?.enabled) {
+            nextState.training = {
+              ...prev.training,
+              latestStats: trainingPayload
+            };
+          }
+
+          return nextState;
+        });
         
         // Send completion to server for all race types (multiplayer, timed practice, and snippet practice)
         // The finalWpm and finalCompletionTime calculated above are used here
         if (socket && connected) {
-          socket.emit('race:result', {
+          const payload = {
             code: raceState.code,
             lobbyId: raceState.lobbyId, // Will be null for practice, that's okay
             snippetId: raceState.snippet?.id, // Will be like 'timed-15' for timed tests
             wpm: finalWpm, // Use the correctly calculated final WPM
             accuracy,
             completion_time: finalCompletionTime // Send fixed duration or actual time
-          });
+          };
+
+          if (trainingPayload) {
+            payload.training = trainingPayload;
+          }
+
+          socket.emit('race:result', payload);
           // console.log(`Emitted race:result for ${raceState.type} race ${raceState.code} with WPM: ${finalWpm}`);
         }
       }
@@ -899,6 +1060,13 @@ export const RaceProvider = ({ children }) => {
       timedTest: {
         enabled: false,
         duration: 15
+      },
+      training: {
+        enabled: false,
+        sessionId: null,
+        focusLetters: [],
+        wordPoolSize: 1000,
+        latestStats: null
       },
       snippetFilters: {
         difficulty: 'all',
@@ -1081,7 +1249,8 @@ export const RaceProvider = ({ children }) => {
         setSnippetSubject,
         snippetError,
         wordDifficulty,
-        setWordDifficulty
+        setWordDifficulty,
+        getTrainingSnapshot: (overrides) => buildTrainingPayload(overrides)
       }}
     >
       {children}

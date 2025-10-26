@@ -69,6 +69,37 @@
   color: var(--primary-color, #ff9900);
 }
 
+.training-focus-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 16px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary-color, #888);
+  font-size: 0.85rem;
+}
+
+.training-focus-inline .label {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.7rem;
+  opacity: 0.75;
+}
+
+.training-focus-inline .value {
+  font-family: var(--mono-font, 'Roboto Mono', monospace);
+  color: var(--text-color, #ddd);
+}
+
+@media (max-width: 960px) {
+  .training-focus-inline {
+    margin-left: 0;
+    margin-top: 10px;
+  }
+}
+
 /* Container for conditional options - defines the area */
 .conditional-options-container {
   position: relative;

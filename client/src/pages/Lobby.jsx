@@ -264,6 +264,7 @@ function Lobby() {
                     snippetDifficulty={snippetDifficulty}
                     snippetCategory={snippetCategory}
                     snippetSubject={snippetSubject}
+                    trainingState={raceState.training}
                     setTestMode={handleSettingChange('setTestMode')}
                     setTestDuration={handleSettingChange('setTestDuration')}
                     setSnippetDifficulty={handleSettingChange('setSnippetDifficulty')}

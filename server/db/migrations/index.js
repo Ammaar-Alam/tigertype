@@ -622,6 +622,66 @@ const MIGRATIONS = [
       console.log('Revert Migration 18 complete.');
     }
   },
+  {
+    version: 19,
+    description: 'Add training session tables for adaptive practice mode',
+    up: async (client) => {
+      console.log('Running migration 19: creating training session tables...');
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS training_sessions (
+          id SERIAL PRIMARY KEY,
+          user_id INT REFERENCES users(id) ON DELETE CASCADE,
+          created_at TIMESTAMPTZ DEFAULT now(),
+          completed_at TIMESTAMPTZ,
+          mode VARCHAR(32) NOT NULL,
+          duration_seconds INT,
+          config JSONB NOT NULL,
+          total_chars INT DEFAULT 0,
+          error_count INT DEFAULT 0,
+          corrected_errors INT DEFAULT 0,
+          wpm NUMERIC(6,2),
+          accuracy NUMERIC(5,2),
+          snippet_id VARCHAR(64)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_training_sessions_user ON training_sessions(user_id, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS training_session_char_stats (
+          session_id INT REFERENCES training_sessions(id) ON DELETE CASCADE,
+          character TEXT NOT NULL,
+          exposures INT NOT NULL DEFAULT 0,
+          mistakes INT NOT NULL DEFAULT 0,
+          extra_hits INT NOT NULL DEFAULT 0,
+          avg_latency_ms NUMERIC(10,2),
+          PRIMARY KEY (session_id, character)
+        );
+
+        CREATE TABLE IF NOT EXISTS training_user_char_totals (
+          user_id INT REFERENCES users(id) ON DELETE CASCADE,
+          character TEXT NOT NULL,
+          exposures BIGINT NOT NULL DEFAULT 0,
+          mistakes BIGINT NOT NULL DEFAULT 0,
+          extra_hits BIGINT NOT NULL DEFAULT 0,
+          total_latency_ms BIGINT NOT NULL DEFAULT 0,
+          latency_samples BIGINT NOT NULL DEFAULT 0,
+          last_seen TIMESTAMPTZ DEFAULT now(),
+          PRIMARY KEY (user_id, character)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_training_totals_user_mistakes ON training_user_char_totals(user_id, mistakes DESC);
+      `);
+      console.log('Migration 19 complete.');
+    },
+    down: async (client) => {
+      console.log('Reverting migration 19: dropping training session tables...');
+      await client.query(`
+        DROP TABLE IF EXISTS training_session_char_stats;
+        DROP TABLE IF EXISTS training_user_char_totals;
+        DROP TABLE IF EXISTS training_sessions;
+      `);
+      console.log('Revert migration 19 complete.');
+    }
+  },
 ];
 
 // Create migrations table if it doesn't exist

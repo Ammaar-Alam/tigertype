@@ -42,7 +42,7 @@ function Typing({
   snippetType,
   snippetDepartment
 }) {
-  const { raceState, setRaceState, typingState, setTypingState, updateProgress, handleInput: raceHandleInput, loadNewSnippet } = useRace();
+  const { raceState, setRaceState, typingState, setTypingState, updateProgress, handleInput: raceHandleInput, loadNewSnippet, getTrainingSnapshot } = useRace();
   const { socket } = useSocket();
   const { user } = useAuth();
   const [input, setInput] = useState('');
@@ -69,25 +69,26 @@ function Typing({
   // Use testMode and testDuration for timed tests if provided
   useEffect(() => {
     if (raceState.type !== 'practice') return;
-    
-    // Mode-specific updates
-    if (testMode === 'timed') {
-      // Enable timed test mode and set duration
+
+    if (testMode === 'timed' || testMode === 'training') {
       setRaceState(prev => ({
         ...prev,
         timedTest: {
           enabled: true,
-          duration: testDuration || 15,
-        }
+          duration: testMode === 'training' ? (testDuration || 30) : (testDuration || 15),
+        },
+        training: testMode === 'training'
+          ? { ...(prev.training || {}), enabled: true, latestStats: null }
+          : { ...(prev.training || {}), enabled: false }
       }));
     } else if (testMode === 'snippet') {
-      // Disable timed test mode
       setRaceState(prev => ({
         ...prev,
         timedTest: {
           enabled: false,
           duration: 15,
-        }
+        },
+        training: { ...(prev.training || {}), enabled: false }
       }));
     }
   }, [testMode, testDuration, raceState.type, setRaceState]);
@@ -475,29 +476,56 @@ function Typing({
             // Capture accuracy at the moment of completion
             const finalAccuracy = typingState.accuracy;
             
+            const trainingPayload = raceState.training?.enabled
+              ? getTrainingSnapshot?.({
+                  totalErrors: typingState.errors,
+                  totalChars: typingState.position,
+                  durationSeconds: duration,
+                  wpm: finalWpm,
+                  accuracy: finalAccuracy
+                })
+              : null;
+
             // Mark as completed locally
-            setRaceState(prev => ({
-              ...prev,
-              completed: true,
-              // Store results directly in state using correctly calculated final values
-              results: [{
-                netid: user?.netid,
-                wpm: finalWpm,          // Use correctly calculated WPM
-                accuracy: finalAccuracy, // Use captured Accuracy
-                completion_time: duration // Use fixed duration as completion time
-              }]
-            }));
+            setRaceState(prev => {
+              const nextState = {
+                ...prev,
+                completed: true,
+                // Store results directly in state using correctly calculated final values
+                results: [{
+                  netid: user?.netid,
+                  wpm: finalWpm,          // Use correctly calculated WPM
+                  accuracy: finalAccuracy, // Use captured Accuracy
+                  completion_time: duration // Use fixed duration as completion time
+                }]
+              };
+
+              if (trainingPayload && prev.training?.enabled) {
+                nextState.training = {
+                  ...prev.training,
+                  latestStats: trainingPayload
+                };
+              }
+
+              return nextState;
+            });
 
             // --- EMIT race:result FOR TIMED TEST COMPLETION --- 
             if (socket && raceState.code && raceState.snippet?.is_timed_test) { // Only emit for timed tests
-              socket.emit('race:result', {
+              const payload = {
                 code: raceState.code,
                 lobbyId: null, // Practice mode lobbyId is null/irrelevant here
                 snippetId: raceState.snippet?.id, // ex: 'timed-15'
                 wpm: finalWpm, // Use correctly calculated WPM
                 accuracy: finalAccuracy, // Use captured Accuracy
                 completion_time: duration // Use fixed duration as completion time
-              });
+              };
+
+              if (trainingPayload) {
+                payload.training = trainingPayload;
+              }
+
+              socket.emit('race:result', payload);
               // console.log(`[Typing.jsx] Emitted race:result for timed test completion (time limit) with WPM: ${finalWpm}`);
             } else {
               console.warn('[Typing.jsx] Cannot emit race:result - socket / race code missing, or not a timed test.');

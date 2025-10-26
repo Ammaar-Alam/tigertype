@@ -132,6 +132,7 @@ function Race() {
                 snippetDifficulty={snippetDifficulty}
                 snippetCategory={snippetCategory}
                 snippetSubject={snippetSubject}
+                trainingState={raceState.training}
                 setTestMode={setTestMode}
                 setTestDuration={setTestDuration}
                 setSnippetDifficulty={setSnippetDifficulty}

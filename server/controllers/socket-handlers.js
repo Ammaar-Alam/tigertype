@@ -9,6 +9,8 @@ const { insertTimedResult, getTimedLeaderboard, recordPartialSession } = require
 const User = require('../models/user');
 const analytics = require('../utils/analytics');
 const { createTimedTestSnippet, generateTimedText } = require('../utils/timed-test');
+const TrainingModel = require('../models/training');
+const { createTrainingSnippet } = require('../utils/training-text');
 
 // Store active races in memory
 const activeRaces = new Map();
@@ -341,13 +343,56 @@ const initialize = (io) => {
         await leaveCurrentRace(io, socket, netid);
 
         let snippet;
-        let practiceCode = `PRACTICE-${socket.id}-${Date.now()}`.slice(0, 16); // Generate an ephemeral code
+        const practiceCode = `PRACTICE-${socket.id}-${Date.now()}`.slice(0, 16); // Generate an ephemeral code
         let snippetId = null;
         let isTimedTest = options.testMode === 'timed';
-        let duration = isTimedTest ? (parseInt(options.testDuration) || 15) : null;
+        const isTrainingMode = Boolean(options.trainingMode);
+        let duration = isTimedTest ? (parseInt(options.testDuration, 10) || 15) : null;
+        let trainingSession = null;
+        let trainingMeta = null;
 
         // Get or create snippet text
-        if (isTimedTest) {
+        if (isTrainingMode) {
+          isTimedTest = true;
+          duration = parseInt(options.testDuration, 10) || 30;
+          const wordPoolSize = options.wordPoolSize || options.trainingWordPoolSize || 1000;
+          let focusLetters = Array.isArray(options.trainingFocus) ? options.trainingFocus : [];
+          if (!focusLetters.length) {
+            focusLetters = await TrainingModel.getRecommendations(userId, 6);
+          }
+          if (!focusLetters.length) {
+            focusLetters = ['e', 't', 'a', 'o', 'i', 'n'];
+          }
+
+          const trainingSnippet = createTrainingSnippet({
+            focusLetters,
+            duration,
+            wordPoolSize
+          });
+          snippet = trainingSnippet;
+          snippetId = trainingSnippet.id;
+
+          trainingSession = await TrainingModel.createSession(userId, {
+            mode: 'adaptive-letter',
+            durationSeconds: duration,
+            config: {
+              focusLetters,
+              wordPoolSize
+            },
+            snippetId
+          });
+
+          trainingMeta = {
+            enabled: true,
+            sessionId: trainingSession.id,
+            focusLetters,
+            wordPoolSize,
+            snippetId
+          };
+          console.log(
+            `Created training session ${trainingSession.id} for user ${userId} with focus letters ${focusLetters.join(',')}`
+          );
+        } else if (isTimedTest) {
           // Pass wordPoolSize option for filtering commonWords
           snippet = createTimedTestSnippet(duration, { wordPoolSize: options.wordPoolSize });
           snippetId = `timed-${duration}`; // Use a special ID for timed tests in memory
@@ -420,6 +465,9 @@ const initialize = (io) => {
             id: snippetId, // Use DB ID or special timed ID
             text: sanitizeSnippetText(snippet.text),
             is_timed_test: isTimedTest,
+            is_training_session: Boolean(trainingMeta?.enabled),
+            training_session_id: trainingMeta?.sessionId || null,
+            training_focus: trainingMeta?.focusLetters || [],
             duration: duration,
             princeton_course_url: snippet.princeton_course_url || null,
             course_name: snippet.course_name || null
@@ -428,10 +476,11 @@ const initialize = (io) => {
           type: 'practice',
           startTime: null,
           settings: { // Store settings used for this practice session
-            testMode: options.testMode || 'snippet',
+            testMode: isTrainingMode ? 'training' : (options.testMode || 'snippet'),
             testDuration: duration || 15, 
             snippetFilters: options.snippetFilters || { difficulty: 'all', type: 'all', department: 'all' }
-          }
+          },
+          training: trainingMeta
         });
 
         // Add player to the in-memory player list
@@ -460,7 +509,8 @@ const initialize = (io) => {
           lobbyId: null, // No DB lobby ID
           snippet: activeRaces.get(practiceCode).snippet,
           settings: activeRaces.get(practiceCode).settings,
-          players: [playerClientData]
+          players: [playerClientData],
+          training: trainingMeta
         });
 
       } catch (err) {
@@ -1431,8 +1481,54 @@ const initialize = (io) => {
           return;
         }
 
+        let handled = false;
+
+        // Handle adaptive training sessions
+        if (race.training?.enabled && race.training.sessionId && !race.training.completed) {
+          const trainingPayload = data.training || {};
+
+          if (trainingPayload.sessionId && trainingPayload.sessionId !== race.training.sessionId) {
+            console.warn(
+              `[WARN race:result] Training payload sessionId mismatch for user ${netid}: expected ${race.training.sessionId}, received ${trainingPayload.sessionId}`
+            );
+          } else {
+            const completionData = {
+              totalChars: trainingPayload.totalChars || 0,
+              errorCount: trainingPayload.errorCount || 0,
+              correctedErrors: trainingPayload.correctedErrors || 0,
+              wpm,
+              accuracy,
+              charStats: Array.isArray(trainingPayload.charStats)
+                ? trainingPayload.charStats.map((stat) => ({
+                    character: stat.character,
+                    exposures: stat.exposures || 0,
+                    mistakes: stat.mistakes || 0,
+                    extraHits: stat.extraHits || 0,
+                    avgLatencyMs: stat.avgLatencyMs != null ? Number(stat.avgLatencyMs) : null,
+                    latencySamples: stat.latencySamples || stat.exposures || 0
+                  }))
+                : []
+            };
+
+            try {
+              await TrainingModel.completeSession(race.training.sessionId, completionData);
+              race.training.completed = true;
+              console.log(
+                `[SUCCESS race:result] Recorded training session ${race.training.sessionId} for ${netid}`
+              );
+            } catch (err) {
+              console.error(
+                `[ERROR race:result] Failed to complete training session ${race.training.sessionId} for user ${userId}:`,
+                err
+              );
+            }
+          }
+
+          handled = true;
+        }
+
         // Check if the result is for a timed test
-        if (race.snippet?.is_timed_test && race.snippet?.duration) {
+        if (!handled && race.snippet?.is_timed_test && race.snippet?.duration) {
           const duration = race.snippet.duration;
           // --- BEGIN DEBUG LOGGING --- 
           // console.log(`[DEBUG race:result] Processing as TIMED test. Duration: ${duration}`);
@@ -1457,7 +1553,8 @@ const initialize = (io) => {
             console.error(`[ERROR race:result] Failed to update user stats for ${userId} after timed result:`, statsError);
           }
 
-        } else if (snippetId) {
+          handled = true;
+        } else if (!handled && snippetId) {
            // --- BEGIN DEBUG LOGGING --- 
            // console.log(`[DEBUG race:result] Processing as REGULAR race. Snippet ID: ${snippetId}`);
            // console.log(`[DEBUG race:result] Calling RaceModel.recordResult with: userId=${userId}, lobbyId=${lobbyId}, snippetId=${snippetId}, wpm=${wpm}, accuracy=${accuracy}, completion_time=${completion_time}`);
@@ -1480,7 +1577,7 @@ const initialize = (io) => {
           } catch (statsError) {
             console.error(`[ERROR race:result] Failed to update user stats for ${userId} after regular result:`, statsError);
           }
-        } else {
+        } else if (!handled) {
           console.warn(`[WARN race:result] Result from ${netid} for race ${code} has no snippetId and is not a timed test.`);
         }
 

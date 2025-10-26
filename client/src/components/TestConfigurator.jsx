@@ -11,6 +11,7 @@ const DifficultyIcon = () => <i className="bi bi-bar-chart-line"></i>;
 const CategoryIcon = () => <i className="bi bi-tags"></i>;
 const SubjectIcon = () => <i className="bi bi-building"></i>;
 const LeaderboardIcon = () => <i className="bi bi-trophy"></i>;
+const TrainingIcon = () => <i className="bi bi-bullseye"></i>;
 // --- ---
 
 // --- Configuration Options ---
@@ -25,6 +26,7 @@ function TestConfigurator({
   snippetDifficulty,
   snippetCategory,
   snippetSubject,
+  trainingState,
   setTestMode,
   setTestDuration,
   setSnippetDifficulty,
@@ -132,6 +134,11 @@ function TestConfigurator({
         timedTest: {
           ...prev.timedTest,
           enabled: true
+        },
+        training: {
+          ...(prev.training || {}),
+          enabled: false,
+          latestStats: null
         }
       }));
       
@@ -150,6 +157,12 @@ function TestConfigurator({
         timedTest: {
           ...prev.timedTest,
           enabled: false
+        },
+        training: {
+          ...(prev.training || {}),
+          enabled: false,
+          latestStats: null,
+          sessionId: null
         }
       }));
       
@@ -157,6 +170,31 @@ function TestConfigurator({
       setter(value);
       
       // Finally request a new snippet
+      setTimeout(() => {
+        loadNewSnippet && loadNewSnippet();
+      }, 0);
+    } else if (value === 'training') {
+      setRaceState(prev => ({
+        ...prev,
+        timedTest: {
+          ...prev.timedTest,
+          enabled: true,
+          duration: 15
+        },
+        training: {
+          ...(prev.training || {}),
+          enabled: true,
+          latestStats: null
+        },
+        startTime: null,
+        inProgress: false,
+        completed: false,
+        manuallyStarted: false
+      }));
+
+      setter(value);
+      setTestDuration(15);
+
       setTimeout(() => {
         loadNewSnippet && loadNewSnippet();
       }, 0);
@@ -169,7 +207,7 @@ function TestConfigurator({
     setTestDuration(duration);
     
     // If we're in timed mode, update raceState and reload the test
-    if (testMode === 'timed') {
+    if (testMode === 'timed' || testMode === 'training') {
       // Force reset race state completely 
       setRaceState(prev => ({
         ...prev,
@@ -178,6 +216,17 @@ function TestConfigurator({
           enabled: true,
           duration: duration
         },
+        training: testMode === 'training'
+          ? {
+              ...(prev.training || {}),
+              enabled: true,
+              latestStats: null
+            }
+          : {
+              ...(prev.training || {}),
+              enabled: false,
+              latestStats: null
+            },
         // Reset these values to force a "fresh start" even if selecting the same duration
         startTime: null,
         inProgress: false,
@@ -200,6 +249,7 @@ function TestConfigurator({
   const BUTTON_ANCHOR_MAP = {
     snippet: 'mode-snippet',
     timed: 'mode-timed',
+    training: 'mode-training',
   };
 
   /**
@@ -236,7 +286,7 @@ function TestConfigurator({
           if (!isFunctional) return;
 
           // Handle the main button categories.
-          if (value === 'timed' || value === 'snippet') {
+          if (value === 'timed' || value === 'snippet' || value === 'training') {
             handleModeChange(value, setter);
           } else if (setter === setTestDuration) {
             handleDurationChange(value);
@@ -272,8 +322,21 @@ function TestConfigurator({
         {/* Mode Selection Group */}
         <div className="config-section mode-selection">
           {renderButton('snippet', testMode, setTestMode, 'Snippets', QuoteIcon)}
+          {renderButton('training', testMode, setTestMode, 'Training', TrainingIcon)}
           {renderButton('timed', testMode, setTestMode, 'Timed', ClockIcon)}
         </div>
+
+        {testMode === 'training' && (
+          <div className="training-focus-inline" aria-label="Adaptive training focus letters">
+            <TrainingIcon />
+            <span className="label">Focus</span>
+            <span className="value">
+              {(trainingState?.focusLetters && trainingState.focusLetters.length)
+                ? trainingState.focusLetters.slice(0, 6).join(', ')
+                : 'Collect training data to personalise drills'}
+            </span>
+          </div>
+        )}
 
         {/* Separator */}
         <div className="config-separator"></div>
@@ -396,11 +459,18 @@ function TestConfigurator({
 
 // Prop types remain the same
 TestConfigurator.propTypes = {
-  testMode: PropTypes.oneOf(['snippet', 'timed']).isRequired,
+  testMode: PropTypes.oneOf(['snippet', 'timed', 'training']).isRequired,
   testDuration: PropTypes.number.isRequired,
   snippetDifficulty: PropTypes.string.isRequired,
   snippetCategory: PropTypes.string.isRequired,
   snippetSubject: PropTypes.string.isRequired,
+  trainingState: PropTypes.shape({
+    enabled: PropTypes.bool,
+    sessionId: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
+    focusLetters: PropTypes.arrayOf(PropTypes.string),
+    wordPoolSize: PropTypes.number,
+    latestStats: PropTypes.object
+  }),
   setTestMode: PropTypes.func.isRequired,
   setTestDuration: PropTypes.func.isRequired,
   setSnippetDifficulty: PropTypes.func.isRequired,
@@ -409,6 +479,11 @@ TestConfigurator.propTypes = {
   setRaceState: PropTypes.func.isRequired,
   loadNewSnippet: PropTypes.func,
   onShowLeaderboard: PropTypes.func.isRequired,
+};
+
+TestConfigurator.defaultProps = {
+  trainingState: null,
+  loadNewSnippet: null,
 };
 
 export default TestConfigurator;

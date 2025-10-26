@@ -9,6 +9,7 @@ const UserModel = require('../models/user');
 const SnippetModel = require('../models/snippet');
 const RaceModel = require('../models/race');
 const profileRoutes = require('./profileRoutes'); // Import profile routes
+const trainingRoutes = require('./trainingRoutes');
 const { pool } = require('../config/database');
 
 // Middleware to ensure API requests are authenticated
@@ -111,6 +112,9 @@ router.get('/public/leaderboard/timed', async (req, res) => {
 // All profile routes require authentication + are mounted under /profile
 router.use('/profile', requireAuth, profileRoutes);
 router.use('/profile', requireAuth, profileRoutes); 
+
+// Training analytics routes
+router.use('/training', trainingRoutes);
 
 // --- Existing API Routes ---
 
