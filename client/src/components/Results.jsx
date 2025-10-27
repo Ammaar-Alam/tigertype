@@ -160,6 +160,15 @@ const TrainingResultsPanel = ({ latestStats, trainingState }) => {
   const charactersDisplay = latestStats?.totalChars ?? aggregatedChars ?? '—';
   const mistakesDisplay = latestStats?.errorCount ?? aggregatedMistakes ?? 0;
 
+  const unitTotals = summary?.unitTotals || [];
+  const digraphStats = unitTotals
+    .filter((unit) => unit.unitType === 'digraph' && unit.exposures > 0)
+    .sort((a, b) => a.accuracy - b.accuracy)
+    .slice(0, 6);
+  const diagnostics = summary?.diagnostics || {};
+  const nextUnits = diagnostics.weak?.slice(0, 3) || [];
+  const dueCount = diagnostics.due?.length || 0;
+
   const visibleCharStats = showAllChars ? sessionCharStats : sessionCharStats.slice(0, 12);
   const showCharToggle = sessionCharStats.length > 12 || (summary?.charTotals?.length ?? 0) > 8;
   const longTermStats = summary?.charTotals || [];
@@ -362,6 +371,60 @@ const TrainingResultsPanel = ({ latestStats, trainingState }) => {
           )}
         </section>
 
+        <section className="training-card digraph-card">
+          <div className="card-header">
+            <h4>Digraph Performance</h4>
+            {dueCount > 0 && (
+              <span className="section-hint">{dueCount} units scheduled for review</span>
+            )}
+          </div>
+          {digraphStats.length ? (
+            <div className="digraph-list">
+              {digraphStats.map((unit) => (
+                <div key={`digraph-${unit.token}`} className="digraph-row">
+                  <span className="digraph-token">{unit.token.toUpperCase()}</span>
+                  <div className="digraph-bar">
+                    <div
+                      className="digraph-bar-fill"
+                      style={{ width: `${Math.max(6, Math.min(100, unit.accuracy))}%` }}
+                    />
+                  </div>
+                  <span className="digraph-accuracy">{unit.accuracy.toFixed(1)}%</span>
+                  <span className="digraph-latency">
+                    {unit.p90Latency ? `${unit.p90Latency}ms p90` : unit.latencyAvg ? `${Math.round(unit.latencyAvg)}ms avg` : '—'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="training-empty">Finish a session to unlock digraph diagnostics.</p>
+          )}
+        </section>
+
+        <section className="training-card next-up-card">
+          <div className="card-header">
+            <h4>Next Up</h4>
+            <span className="section-hint">Adaptive goals for your next session</span>
+          </div>
+          {nextUnits.length ? (
+            <div className="next-chip-row">
+              {nextUnits.map((unit) => {
+                const reason = unit.latencyAverage
+                  ? `${Math.round(unit.latencyAverage)}ms latency`
+                  : `${unit.mistakes}/${unit.exposures} misses`;
+                return (
+                  <span key={`${unit.unitType}-${unit.token}`} className="next-chip">
+                    <strong>{(unit.display || unit.token).toUpperCase()}</strong>
+                    <small>{reason}</small>
+                  </span>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="training-empty">Your next plan will appear once we have enough data.</p>
+          )}
+        </section>
+
         <section className="training-card focus-card">
           <div className="card-header">
             <h4>Long-Term Focus</h4>
@@ -427,7 +490,15 @@ TrainingResultsPanel.propTypes = {
     }))
   }),
   trainingState: PropTypes.shape({
-    focusLetters: PropTypes.arrayOf(PropTypes.string)
+    focusLetters: PropTypes.arrayOf(PropTypes.string),
+    plan: PropTypes.shape({
+      blocks: PropTypes.arrayOf(PropTypes.shape({
+        type: PropTypes.string,
+        seconds: PropTypes.number,
+        targets: PropTypes.array
+      })),
+      focus: PropTypes.array
+    })
   })
 };
 

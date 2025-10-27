@@ -104,6 +104,70 @@
   max-width: 260px;
 }
 
+.training-plan-preview {
+  margin: 12px 0 0 16px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  color: var(--text-secondary-color, #bbb);
+  font-size: 0.85rem;
+}
+
+.training-plan-preview .plan-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.training-plan-preview .plan-chip {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 0.75rem;
+  color: var(--text-color, #eee);
+  text-transform: capitalize;
+}
+
+.training-plan-preview .plan-chip.plan-core {
+  background: rgba(255, 150, 0, 0.15);
+}
+
+.training-plan-preview .plan-chip.plan-warmup {
+  background: rgba(0, 180, 255, 0.12);
+}
+
+.training-plan-preview .plan-chip.plan-cooldown {
+  background: rgba(0, 255, 180, 0.12);
+}
+
+.training-plan-preview .plan-chip.plan-micro {
+  background: rgba(255, 0, 120, 0.15);
+}
+
+.training-plan-preview .plan-meta {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+  font-size: 0.75rem;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.training-plan-preview .plan-summary {
+  font-weight: 600;
+  color: var(--text-color, #f8f8f8);
+}
+
+.training-plan-preview .plan-focus {
+  font-family: var(--mono-font, 'Roboto Mono', monospace);
+}
+
+.training-plan-preview .plan-status {
+  font-size: 0.75rem;
+  opacity: 0.8;
+}
+
 @media (max-width: 960px) {
   .training-focus-inline {
     margin-left: 0;
@@ -116,6 +180,9 @@
   .training-focus-inline .value {
     max-width: 100%;
     white-space: normal;
+  }
+  .training-plan-preview {
+    margin-left: 0;
   }
 }
 

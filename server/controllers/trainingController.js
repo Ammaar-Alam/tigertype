@@ -43,8 +43,34 @@ const getRecommendations = async (req, res) => {
   }
 };
 
+const getPlan = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const plan = await TrainingModel.getPlanForToday(userId, {
+      maxCoreBlocks: Math.max(2, Math.min(parseInt(req.query.maxBlocks, 10) || 4, 6))
+    });
+    res.json(plan);
+  } catch (err) {
+    console.error('Error fetching training plan:', err);
+    res.status(500).json({ error: 'Failed to load training plan' });
+  }
+};
+
+const getDiagnostics = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const diagnostics = await TrainingModel.getDiagnostics(userId);
+    res.json(diagnostics);
+  } catch (err) {
+    console.error('Error fetching training diagnostics:', err);
+    res.status(500).json({ error: 'Failed to load training diagnostics' });
+  }
+};
+
 module.exports = {
   getSummary,
   getHistory,
-  getRecommendations
+  getRecommendations,
+  getPlan,
+  getDiagnostics
 };

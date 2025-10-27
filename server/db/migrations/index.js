@@ -682,6 +682,81 @@ const MIGRATIONS = [
       console.log('Revert migration 19 complete.');
     }
   },
+  {
+    version: 20,
+    description: 'Expand training units, spaced review, and telemetry tables',
+    up: async (client) => {
+      console.log('Running migration 20: creating adaptive training tables...');
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS training_units (
+          id SERIAL PRIMARY KEY,
+          unit_type VARCHAR(12) NOT NULL CHECK (unit_type IN ('char','digraph','trigraph','word','punct','digit')),
+          token TEXT NOT NULL,
+          display TEXT,
+          UNIQUE (unit_type, token)
+        );
+
+        CREATE TABLE IF NOT EXISTS training_user_unit_totals (
+          user_id INT REFERENCES users(id) ON DELETE CASCADE,
+          unit_id INT REFERENCES training_units(id) ON DELETE CASCADE,
+          exposures BIGINT NOT NULL DEFAULT 0,
+          mistakes BIGINT NOT NULL DEFAULT 0,
+          extra_hits BIGINT NOT NULL DEFAULT 0,
+          latency_ms_sum BIGINT NOT NULL DEFAULT 0,
+          latency_samples BIGINT NOT NULL DEFAULT 0,
+          p50_latency_ms INT,
+          p90_latency_ms INT,
+          last_seen TIMESTAMPTZ DEFAULT now(),
+          PRIMARY KEY (user_id, unit_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS training_user_unit_srs (
+          user_id INT REFERENCES users(id) ON DELETE CASCADE,
+          unit_id INT REFERENCES training_units(id) ON DELETE CASCADE,
+          ease NUMERIC(4,2) NOT NULL DEFAULT 2.50,
+          interval_days INT NOT NULL DEFAULT 0,
+          due_at DATE NOT NULL DEFAULT CURRENT_DATE,
+          stability NUMERIC(4,2),
+          PRIMARY KEY (user_id, unit_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS training_keystrokes (
+          session_id INT REFERENCES training_sessions(id) ON DELETE CASCADE,
+          idx INT NOT NULL,
+          t_ms INT NOT NULL,
+          expected TEXT NOT NULL,
+          actual TEXT NOT NULL,
+          correct BOOLEAN NOT NULL,
+          backspace BOOLEAN NOT NULL DEFAULT false,
+          dwell_ms INT,
+          flight_ms INT,
+          PRIMARY KEY (session_id, idx)
+        );
+
+        CREATE TABLE IF NOT EXISTS training_drills (
+          id SERIAL PRIMARY KEY,
+          text TEXT NOT NULL,
+          tags TEXT[],
+          difficulty INT DEFAULT 1
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_training_unit_totals_hot ON training_user_unit_totals (user_id, mistakes DESC, exposures DESC);
+        CREATE INDEX IF NOT EXISTS idx_training_unit_srs_due ON training_user_unit_srs (user_id, due_at);
+      `);
+      console.log('Migration 20 complete.');
+    },
+    down: async (client) => {
+      console.log('Reverting migration 20: dropping adaptive training tables...');
+      await client.query(`
+        DROP TABLE IF EXISTS training_drills;
+        DROP TABLE IF EXISTS training_keystrokes;
+        DROP TABLE IF EXISTS training_user_unit_srs;
+        DROP TABLE IF EXISTS training_user_unit_totals;
+        DROP TABLE IF EXISTS training_units;
+      `);
+      console.log('Revert migration 20 complete.');
+    }
+  },
 ];
 
 // Create migrations table if it doesn't exist
