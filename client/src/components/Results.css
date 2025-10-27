@@ -294,6 +294,14 @@
   align-items: center;
 }
 
+.practice-results.training-view {
+  max-width: min(1100px, 100%);
+  width: 100%;
+  align-items: stretch;
+  padding: 0 16px 20px;
+  box-sizing: border-box;
+}
+
 /* Hide the Practice Results heading as it's redundant with the main Results heading */
 .practice-results h3 {
   display: none;
@@ -643,54 +651,48 @@
 }
 
 .training-results-panel {
-  display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(260px, 0.8fr);
+  display: flex;
+  flex-direction: column;
   gap: 24px;
   background: rgba(255, 255, 255, 0.04);
   border-radius: 14px;
-  padding: 20px;
+  padding: 24px;
   width: 100%;
+  box-sizing: border-box;
+  border: 1px solid rgba(255, 255, 255, 0.03);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
 }
 
 .training-view .training-results-panel {
   margin-bottom: 16px;
 }
 
-.training-main,
-.training-side {
-  background: rgba(0, 0, 0, 0.18);
-  border-radius: 12px;
-  padding: 18px;
+.training-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.training-title-block {
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
-}
-
-.training-side {
-  min-width: 0;
-}
-
-@media (max-width: 1100px) {
-  .training-results-panel {
-    grid-template-columns: 1fr;
-  }
-
-  .training-main,
-  .training-side {
-    padding: 16px;
-  }
-}
-
-.char-accuracy-section {
-  flex: 1;
-}
-
-.training-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   gap: 12px;
+  flex: 1 1 320px;
+  min-width: 260px;
+}
+
+.training-title-block h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  letter-spacing: 0.04em;
+}
+
+.training-session-meta {
+  font-size: 0.8rem;
+  color: var(--text-secondary-color, #888);
+  opacity: 0.85;
 }
 
 .focus-chips {
@@ -710,8 +712,11 @@
 
 .training-metrics {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  grid-template-columns: repeat(2, minmax(120px, 1fr));
   gap: 12px;
+  min-width: 240px;
+  max-width: 320px;
+  flex: 0 0 260px;
 }
 
 .metric-card {
@@ -735,38 +740,103 @@
   font-weight: 700;
 }
 
-.training-section {
+.training-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  gap: 20px;
+}
+
+.training-card {
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 12px;
+  padding: 18px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.02);
+  position: relative;
+  overflow: hidden;
 }
 
-.section-header {
+.training-card.key-accuracy-card {
+  grid-column: 1;
+  grid-row: span 2;
+  min-height: 320px;
+}
+
+.training-card.progress-card,
+.training-card.focus-card {
+  grid-column: 2;
+  min-height: 220px;
+}
+
+.card-header {
   display: flex;
   align-items: baseline;
+  justify-content: space-between;
   gap: 12px;
 }
 
-.section-header h4 {
+.card-header h4 {
   margin: 0;
   font-size: 1rem;
 }
 
-.section-header .loading-note,
-.section-header .section-hint {
+.card-header .loading-note,
+.card-header .section-hint {
   font-size: 0.8rem;
   opacity: 0.7;
 }
 
+.char-grid-toggle {
+  border: none;
+  background: none;
+  color: var(--primary-color, #ff9900);
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+}
+
+.char-grid-toggle:hover {
+  color: #ffc266;
+}
+
 .char-stat-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px 18px;
+}
+
+.char-stat-grid.scrollable {
+  max-height: 260px;
+  overflow-y: auto;
+  padding-right: 10px;
+  margin-right: -6px;
+}
+
+.char-stat-grid.scrollable::-webkit-scrollbar {
+  width: 6px;
+}
+
+.char-stat-grid.scrollable::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+}
+
+.char-stat-grid.scrollable::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.long-term-grid.scrollable {
+  max-height: 220px;
 }
 
 .char-stat-row {
   display: grid;
-  grid-template-columns: 60px 1fr 60px 70px;
+  grid-template-columns: 56px 1fr 60px 70px;
   align-items: center;
   gap: 10px;
 }
@@ -812,11 +882,31 @@
   flex-direction: column;
   align-items: flex-start;
   gap: 6px;
+  width: 100%;
+  position: relative;
 }
 
-.history-chart svg {
+.chart-canvas {
   width: 100%;
-  max-width: 320px;
+  height: 130px;
+  padding: 6px 6px 0;
+  box-sizing: border-box;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 10px;
+}
+
+.chart-canvas.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+}
+
+.chart-canvas svg {
+  width: 100%;
+  max-width: 100%;
+  height: 100%;
+  display: block;
 }
 
 .chart-caption {
@@ -824,6 +914,53 @@
   gap: 12px;
   font-size: 0.75rem;
   opacity: 0.7;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.chart-caption span {
+  white-space: nowrap;
+}
+
+.chart-axis {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  font-size: 0.7rem;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.chart-y-labels {
+  position: absolute;
+  left: 4px;
+  top: 10px;
+  bottom: 44px;
+  width: 40px;
+}
+
+.chart-y-labels span {
+  position: absolute;
+  left: 0;
+  transform: translateY(-50%);
+}
+
+.chart-x-labels {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 4px;
+  display: flex;
+  justify-content: space-between;
+  padding: 0 12px;
+}
+
+.chart-peak {
+  color: var(--primary-color, #ff9900);
+  font-weight: 600;
+}
+
+.chart-min {
+  color: rgba(255, 255, 255, 0.6);
 }
 
 .training-empty {
@@ -836,4 +973,42 @@
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.04);
   text-align: center;
+}
+
+.training-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.training-footer-note {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-secondary-color, #888);
+}
+
+.training-footer .keyboard-shortcuts {
+  margin: 0;
+  text-align: left;
+}
+
+.chart-empty {
+  font-size: 0.85rem;
+  opacity: 0.75;
+}
+
+@media (max-width: 1200px) {
+  .training-body {
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  }
+
+  .training-card.key-accuracy-card {
+    grid-column: 1 / -1;
+    grid-row: auto;
+  }
+
+  .training-card.progress-card,
+  .training-card.focus-card {
+    grid-column: auto;
+  }
 }

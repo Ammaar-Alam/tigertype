@@ -14,6 +14,7 @@ const TrainingResultsPanel = ({ latestStats, trainingState }) => {
   const [summary, setSummary] = useState(null);
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showAllChars, setShowAllChars] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -22,7 +23,7 @@ const TrainingResultsPanel = ({ latestStats, trainingState }) => {
       try {
         const [summaryRes, historyRes] = await Promise.all([
           axios.get('/api/training/summary'),
-          axios.get('/api/training/history?limit=10')
+          axios.get('/api/training/history?limit=50')
         ]);
 
         if (!cancelled) {
@@ -48,6 +49,10 @@ const TrainingResultsPanel = ({ latestStats, trainingState }) => {
     };
   }, []);
 
+  useEffect(() => {
+    setShowAllChars(false);
+  }, [latestStats]);
+
   const sessionCharStats = useMemo(() => {
     return (latestStats?.charStats || [])
       .filter(stat => stat.exposures > 0)
@@ -61,39 +66,85 @@ const TrainingResultsPanel = ({ latestStats, trainingState }) => {
   }, [latestStats]);
 
   const historyChart = useMemo(() => {
-    const points = history
-      .filter(session => session.wpm != null)
-      .slice(0, 10)
+    const completedSessions = history
+      .filter(session => session.wpm != null && session.completed_at != null)
+      .slice(0, 30)
       .reverse();
 
-    if (!points.length) {
+    if (!completedSessions.length) {
       return null;
     }
 
-    const width = 280;
-    const height = 120;
-    const maxWpm = Math.max(
-      ...points.map(session => Number(session.wpm) || 0),
-      Number(latestStats?.wpm) || 0,
-      50
-    );
+    if (completedSessions.length === 1) {
+      return {
+        points: completedSessions,
+        maxWpm: Number(completedSessions[0].wpm) || 0,
+        minWpm: Number(completedSessions[0].wpm) || 0,
+        path: '',
+        markers: [],
+        yTicks: []
+      };
+    }
 
-    const path = points
+    const chartWidth = 320;
+    const chartHeight = 140;
+    const marginX = 14;
+    const marginY = 18;
+    const innerWidth = chartWidth - marginX * 2;
+    const innerHeight = chartHeight - marginY * 2;
+
+    const rawWpm = completedSessions.map(session => Number(session.wpm) || 0);
+    const maxWpm = Math.max(...rawWpm, Number(latestStats?.wpm) || 0);
+    const minWpm = Math.min(...rawWpm, Number(latestStats?.wpm) || maxWpm);
+    const range = Math.max(5, maxWpm - minWpm || 0);
+    const yMax = maxWpm + range * 0.1;
+    const yMin = Math.max(0, minWpm - range * 0.1);
+    const ySpan = Math.max(1, yMax - yMin);
+
+    const formatLabel = (session) => {
+      if (!session?.completed_at) return '';
+      return new Date(session.completed_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    };
+
+    const path = completedSessions
       .map((session, index) => {
-        const ratio = points.length > 1 ? index / (points.length - 1) : 0;
-        const x = ratio * width;
+        const ratio = completedSessions.length > 1 ? index / (completedSessions.length - 1) : 0;
+        const x = marginX + ratio * innerWidth;
         const wpm = Number(session.wpm) || 0;
-        const y = height - (wpm / maxWpm) * height;
-        return `${index === 0 ? 'M' : 'L'}${x.toFixed(2)},${y.toFixed(2)}`;
+        const y = marginY + (1 - ((wpm - yMin) / ySpan)) * innerHeight;
+        return `${index === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
       })
       .join(' ');
 
+    const markers = completedSessions.map((session, index) => {
+      const ratio = completedSessions.length > 1 ? index / (completedSessions.length - 1) : 0;
+      const x = marginX + ratio * innerWidth;
+      const wpm = Number(session.wpm) || 0;
+      const y = marginY + (1 - ((wpm - yMin) / ySpan)) * innerHeight;
+      return {
+        x,
+        y,
+        wpm,
+        label: formatLabel(session)
+      };
+    });
+
+    const yTicks = [yMax, (yMax + yMin) / 2, yMin].map(value => ({
+      value,
+      y: marginY + (1 - ((value - yMin) / ySpan)) * innerHeight
+    }));
+
     return {
-      width,
-      height,
+      width: chartWidth,
+      height: chartHeight,
+      marginX,
+      marginY,
       path,
-      points,
-      maxWpm
+      points: completedSessions,
+      markers,
+      yTicks,
+      maxWpm: yMax,
+      minWpm: yMin
     };
   }, [history, latestStats]);
 
@@ -109,10 +160,42 @@ const TrainingResultsPanel = ({ latestStats, trainingState }) => {
   const charactersDisplay = latestStats?.totalChars ?? aggregatedChars ?? '—';
   const mistakesDisplay = latestStats?.errorCount ?? aggregatedMistakes ?? 0;
 
+  const visibleCharStats = showAllChars ? sessionCharStats : sessionCharStats.slice(0, 12);
+  const showCharToggle = sessionCharStats.length > 12 || (summary?.charTotals?.length ?? 0) > 8;
+  const longTermStats = summary?.charTotals || [];
+  const longTermVisibleStats = showAllChars ? longTermStats : longTermStats.slice(0, 8);
+  const longTermKeys = longTermStats.length;
+
+  const formattedCharactersValue = typeof charactersDisplay === 'number'
+    ? charactersDisplay.toLocaleString()
+    : charactersDisplay;
+  const formattedMistakesValue = typeof mistakesDisplay === 'number'
+    ? mistakesDisplay.toLocaleString()
+    : mistakesDisplay;
+
+  const sessionMetaParts = [];
+  if (typeof charactersDisplay === 'number') {
+    sessionMetaParts.push(`${charactersDisplay.toLocaleString()} characters`);
+  }
+  if (sessionCharStats.length) {
+    sessionMetaParts.push(`${sessionCharStats.length} tracked keys`);
+  }
+  const sessionMeta = sessionMetaParts.join(' • ');
+
+  const charGridClasses = ['char-stat-grid'];
+  if (showAllChars && sessionCharStats.length > 12) {
+    charGridClasses.push('scrollable');
+  }
+
+  const longTermGridClasses = ['char-stat-grid', 'long-term-grid'];
+  if (showAllChars && longTermStats.length > 8) {
+    longTermGridClasses.push('scrollable');
+  }
+
   return (
     <div className="training-results-panel">
-      <div className="training-main">
-        <div className="training-heading">
+      <div className="training-header">
+        <div className="training-title-block">
           <h3>Adaptive Training Session</h3>
           {focusLetters.length > 0 && (
             <div className="focus-chips" aria-label="Focus letters this session">
@@ -122,6 +205,9 @@ const TrainingResultsPanel = ({ latestStats, trainingState }) => {
                 </span>
               ))}
             </div>
+          )}
+          {sessionMeta && (
+            <p className="training-session-meta">{sessionMeta}</p>
           )}
         </div>
 
@@ -138,21 +224,33 @@ const TrainingResultsPanel = ({ latestStats, trainingState }) => {
           </div>
           <div className="metric-card">
             <span className="metric-label">Characters</span>
-            <span className="metric-value">{charactersDisplay}</span>
+            <span className="metric-value">{formattedCharactersValue}</span>
           </div>
           <div className="metric-card">
             <span className="metric-label">Mistakes</span>
-            <span className="metric-value">{mistakesDisplay}</span>
+            <span className="metric-value">{formattedMistakesValue}</span>
           </div>
         </div>
+      </div>
 
-        <div className="training-section char-accuracy-section">
-          <div className="section-header">
+      <div className="training-body">
+        <section className="training-card key-accuracy-card">
+          <div className="card-header">
             <h4>This Session&apos;s Accuracy by Key</h4>
+            {showCharToggle && (
+              <button
+                type="button"
+                className="char-grid-toggle"
+                onClick={() => setShowAllChars(prev => !prev)}
+                aria-expanded={showAllChars}
+              >
+                View {showAllChars ? 'less' : 'all'}
+              </button>
+            )}
           </div>
-          {sessionCharStats.length ? (
-            <div className="char-stat-grid">
-              {sessionCharStats.slice(0, 12).map(stat => {
+          {visibleCharStats.length ? (
+            <div className={charGridClasses.join(' ')}>
+              {visibleCharStats.map(stat => {
                 const label = stat.character === ' ' ? 'Space' : stat.character.toUpperCase();
                 return (
                   <div key={stat.character} className="char-stat-row">
@@ -172,48 +270,108 @@ const TrainingResultsPanel = ({ latestStats, trainingState }) => {
           ) : (
             <p className="training-empty">Finish a session to see letter-specific feedback.</p>
           )}
-        </div>
-      </div>
+        </section>
 
-      <div className="training-side">
-        <div className="training-section">
-          <div className="section-header">
+        <section className="training-card progress-card">
+          <div className="card-header">
             <h4>Recent Progress</h4>
             {loading && <span className="loading-note">Loading…</span>}
           </div>
           {historyChart ? (
             <div className="history-chart">
-              <svg
-                width={historyChart.width}
-                height={historyChart.height}
-                viewBox={`0 0 ${historyChart.width} ${historyChart.height}`}
-              >
-                <path
-                  d={historyChart.path}
-                  fill="none"
-                  stroke="var(--primary-color, #ff9900)"
-                  strokeWidth="3"
-                  strokeLinecap="round"
-                />
-              </svg>
+              {historyChart.path ? (
+                <>
+                  <div className="chart-canvas">
+                    <svg
+                      width={historyChart.width}
+                      height={historyChart.height}
+                      viewBox={`0 0 ${historyChart.width} ${historyChart.height}`}
+                      preserveAspectRatio="none"
+                    >
+                      <defs>
+                        <linearGradient id="trainingChartFill" x1="0" x2="0" y1="0" y2="1">
+                          <stop offset="0%" stopColor="rgba(255, 153, 0, 0.28)" />
+                          <stop offset="100%" stopColor="rgba(255, 153, 0, 0.05)" />
+                        </linearGradient>
+                      </defs>
+                      <path
+                        d={`${historyChart.path} L${historyChart.width - historyChart.marginX},${historyChart.height - historyChart.marginY} L${historyChart.marginX},${historyChart.height - historyChart.marginY} Z`}
+                        fill="url(#trainingChartFill)"
+                        stroke="none"
+                      />
+                      <path
+                        d={historyChart.path}
+                        fill="none"
+                        stroke="var(--primary-color, #ff9900)"
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                      />
+                      {historyChart.yTicks.map(tick => (
+                        <g key={tick.value}>
+                          <line
+                            x1={historyChart.marginX}
+                            x2={historyChart.width - historyChart.marginX}
+                            y1={tick.y}
+                            y2={tick.y}
+                            stroke="rgba(255,255,255,0.06)"
+                            strokeWidth="1"
+                          />
+                        </g>
+                      ))}
+                      {historyChart.markers.map((marker, idx) => (
+                        <g key={`${marker.label}-${idx}`}>
+                          <circle
+                            cx={marker.x}
+                            cy={marker.y}
+                            r="4"
+                            fill="#ff9900"
+                            stroke="rgba(0,0,0,0.4)"
+                            strokeWidth="1"
+                          />
+                        </g>
+                      ))}
+                    </svg>
+                  </div>
+                  <div className="chart-axis">
+                    <div className="chart-y-labels">
+                      {historyChart.yTicks.map(tick => (
+                        <span key={tick.value} style={{ top: `${(tick.y / historyChart.height) * 100}%` }}>
+                          {tick.value.toFixed(0)}
+                        </span>
+                      ))}
+                    </div>
+                    <div className="chart-x-labels">
+                      <span>{historyChart.markers[0].label}</span>
+                      <span>{historyChart.markers[historyChart.markers.length - 1].label}</span>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="chart-canvas placeholder">
+                  <p className="chart-empty">Complete more sessions to start building a trend.</p>
+                </div>
+              )}
               <div className="chart-caption">
                 <span>Last {historyChart.points.length} sessions</span>
-                <span>Peak {historyChart.maxWpm.toFixed(1)} WPM</span>
+                <span className="chart-peak">Peak {historyChart.maxWpm.toFixed(1)} WPM</span>
+                <span className="chart-min">Floor {historyChart.minWpm.toFixed(1)} WPM</span>
               </div>
             </div>
           ) : (
             <p className="training-empty">Complete a few more sessions to unlock progress tracking.</p>
           )}
-        </div>
+        </section>
 
-        {summary?.charTotals?.length ? (
-          <div className="training-section">
-            <div className="section-header">
-              <h4>Long-Term Focus</h4>
-              <span className="section-hint">Based on {summary.charTotals.length} tracked keys</span>
-            </div>
-            <div className="char-stat-grid">
-              {summary.charTotals.slice(0, 8).map(stat => {
+        <section className="training-card focus-card">
+          <div className="card-header">
+            <h4>Long-Term Focus</h4>
+            {longTermKeys > 0 && (
+              <span className="section-hint">Based on {longTermKeys} tracked keys</span>
+            )}
+          </div>
+          {longTermVisibleStats.length ? (
+            <div className={longTermGridClasses.join(' ')}>
+              {longTermVisibleStats.map(stat => {
                 const accuracy = stat.exposures > 0
                   ? ((stat.exposures - stat.mistakes) / stat.exposures) * 100
                   : 100;
@@ -233,8 +391,21 @@ const TrainingResultsPanel = ({ latestStats, trainingState }) => {
                 );
               })}
             </div>
-          </div>
-        ) : null}
+          ) : (
+            <p className="training-empty">Complete a few more sessions to unlock long-term insights.</p>
+          )}
+        </section>
+      </div>
+
+      <div className="training-footer">
+        <TutorialAnchor anchorId="finish-practice">
+          <p className="training-footer-note">
+            Training sessions are personalised drills, so leaderboards stay hidden here.
+          </p>
+        </TutorialAnchor>
+        <div className="keyboard-shortcuts">
+          <p>Press <kbd>Tab</kbd> for a new session • <kbd>Esc</kbd> to restart</p>
+        </div>
       </div>
     </div>
   );
@@ -342,20 +513,15 @@ function Results({ onShowLeaderboard }) {
                 trainingState={raceState.training}
               />
             ) : (
-              <div className="training-empty state">
-                <p>Complete a training session to unlock personalised analytics.</p>
-              </div>
+              <>
+                <div className="training-empty state">
+                  <p>Complete a training session to unlock personalised analytics.</p>
+                </div>
+                <div className="keyboard-shortcuts">
+                  <p>Press <kbd>Tab</kbd> for a new session • <kbd>Esc</kbd> to restart</p>
+                </div>
+              </>
             )}
-            <TutorialAnchor anchorId="finish-practice">
-              {onShowLeaderboard && (
-                <button className="leaderboard-shortcut-btn" onClick={onShowLeaderboard}>
-                  <i className="bi bi-trophy"></i> View Leaderboards
-                </button>
-              )}
-            </TutorialAnchor>
-            <div className="keyboard-shortcuts">
-              <p>Press <kbd>Tab</kbd> for a new session • <kbd>Esc</kbd> to restart</p>
-            </div>
           </div>
         </TutorialAnchor>
       );

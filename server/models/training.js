@@ -165,7 +165,8 @@ const TrainingModel = {
                total_chars, error_count, corrected_errors, wpm, accuracy
         FROM training_sessions
         WHERE user_id = $1
-        ORDER BY created_at DESC
+          AND completed_at IS NOT NULL
+        ORDER BY completed_at DESC
         LIMIT $2
       `,
       [userId, limit]
