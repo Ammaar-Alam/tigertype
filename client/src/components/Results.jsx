@@ -154,12 +154,30 @@ const TrainingResultsPanel = ({ latestStats, trainingState }) => {
 
   const planBlocks = trainingState?.plan?.blocks || [];
   const totalBlocks = planBlocks.length;
-  const currentIndexRaw = trainingState?.currentBlockIndex ?? 0;
-  const completedBlocks = Math.max(0, Math.min(currentIndexRaw, totalBlocks));
-  const upcomingIndex = completedBlocks < totalBlocks ? completedBlocks : Math.max(totalBlocks - 1, 0);
-  const upcomingBlock = planBlocks[upcomingIndex] || null;
-  const completedBlock = latestStats?.blockMeta || (completedBlocks > 0 ? planBlocks[Math.min(completedBlocks - 1, Math.max(planBlocks.length - 1, 0))] : null);
-  const planProgressPercent = totalBlocks ? Math.round((completedBlocks / totalBlocks) * 100) : 0;
+  const planProgress = trainingState?.planProgress || {};
+  const completedIdSet = new Set(
+    Array.isArray(planProgress.completedBlockIds) ? planProgress.completedBlockIds : []
+  );
+  const completedBlocksRaw =
+    planProgress?.completedCount != null
+      ? planProgress.completedCount
+      : completedIdSet.size;
+  const completedBlocks = Math.max(0, Math.min(completedBlocksRaw, totalBlocks));
+  const nextIndexRaw =
+    planProgress?.nextIndex != null ? planProgress.nextIndex : completedBlocks;
+  const planComplete = totalBlocks > 0 && completedBlocks >= totalBlocks;
+  const upcomingIndex = !planComplete
+    ? (nextIndexRaw < totalBlocks ? nextIndexRaw : Math.max(totalBlocks - 1, 0))
+    : null;
+  const upcomingBlock = upcomingIndex != null ? planBlocks[upcomingIndex] || null : null;
+  const completedBlock =
+    latestStats?.blockMeta ||
+    (completedBlocks > 0
+      ? planBlocks[Math.min(completedBlocks - 1, Math.max(planBlocks.length - 1, 0))]
+      : null);
+  const planProgressPercent = totalBlocks
+    ? Math.round((completedBlocks / totalBlocks) * 100)
+    : 0;
   const planIdSuffix = trainingState?.plan?.planId?.slice(-4) || '';
 
   const nextRecommendations = useMemo(() => {
@@ -386,8 +404,9 @@ const TrainingResultsPanel = ({ latestStats, trainingState }) => {
                 <div className="plan-progress-fill" style={{ width: `${planProgressPercent}%` }}></div>
               </div>
               <span className="plan-progress-text">
-                {completedBlocks}/{totalBlocks} blocks complete
-                {planIdSuffix ? ` • Plan ${planIdSuffix}` : ''}
+                {planComplete
+                  ? `Plan complete${planIdSuffix ? ` • Plan ${planIdSuffix}` : ''}`
+                  : `${completedBlocks}/${totalBlocks} blocks complete${planIdSuffix ? ` • Plan ${planIdSuffix}` : ''}`}
               </span>
             </div>
           )}
@@ -551,6 +570,11 @@ TrainingResultsPanel.propTypes = {
       generatedAt: PropTypes.string,
       dueCount: PropTypes.number,
       blocks: PropTypes.array
+    }),
+    planProgress: PropTypes.shape({
+      completedBlockIds: PropTypes.arrayOf(PropTypes.string),
+      completedCount: PropTypes.number,
+      nextIndex: PropTypes.number
     }),
     currentBlockIndex: PropTypes.number,
     blockMeta: PropTypes.shape({

@@ -23,8 +23,11 @@ function sanitizeToken(token) {
 }
 
 function addDays(date, days) {
-  const result = new Date(date);
-  result.setDate(result.getDate() + days);
+  const safeDays = Number.isFinite(days) ? days : 0;
+  const base = new Date(date);
+  const result = Number.isNaN(base.getTime()) ? new Date() : base;
+  result.setHours(0, 0, 0, 0);
+  result.setDate(result.getDate() + safeDays);
   return result;
 }
 
@@ -207,6 +210,14 @@ function qualityFromDelta(delta) {
   return Math.max(0, Math.min(5, quality));
 }
 
+const MAX_INTERVAL_DAYS = 3650; // clamp to ~10 years to keep integers in range
+
+function sanitizeIntervalDays(value) {
+  const numeric = Number.isFinite(value) ? value : 0;
+  if (numeric <= 0) return 0;
+  return Math.min(MAX_INTERVAL_DAYS, Math.max(0, Math.round(numeric)));
+}
+
 function sm2Update(ease, intervalDays, quality) {
   const q = Math.max(0, Math.min(5, quality));
   let newEase =
@@ -215,19 +226,37 @@ function sm2Update(ease, intervalDays, quality) {
     newEase = 1.3;
   }
 
+  const currentInterval = sanitizeIntervalDays(intervalDays);
   let newInterval;
   if (q <= 2) {
     newInterval = 1;
-  } else if (intervalDays === 0) {
+  } else if (currentInterval === 0) {
     newInterval = 1;
   } else {
-    newInterval = Math.max(2, Math.round(intervalDays * newEase));
+    newInterval = Math.max(2, Math.round(currentInterval * newEase));
   }
 
+  if (!Number.isFinite(newInterval) || newInterval < 1) {
+    newInterval = 1;
+  } else if (newInterval > MAX_INTERVAL_DAYS) {
+    newInterval = MAX_INTERVAL_DAYS;
+  }
+
+  let newIntervalSafe;
+  if (!Number.isFinite(newInterval) || newInterval < 1) {
+    newIntervalSafe = 1;
+  } else {
+    newIntervalSafe = Math.round(newInterval);
+    if (newIntervalSafe < 1) {
+      newIntervalSafe = 1;
+    }
+  }
+
+  const dueAtDate = addDays(new Date(), newIntervalSafe);
   return {
     ease: newEase,
-    interval: newInterval,
-    dueAt: addDays(new Date(), newInterval)
+    interval: newIntervalSafe,
+    dueAt: dueAtDate
   };
 }
 
@@ -243,10 +272,15 @@ async function updateSrsState(client, userId, unitId, quality) {
   );
 
   const currentEase = existing.rows.length ? Number(existing.rows[0].ease || 2.5) : 2.5;
-  const currentInterval = existing.rows.length ? parseInt(existing.rows[0].interval_days || 0, 10) : 0;
+  const currentInterval = existing.rows.length
+    ? sanitizeIntervalDays(parseInt(existing.rows[0].interval_days || 0, 10))
+    : 0;
 
   const update = sm2Update(currentEase, currentInterval, quality);
   const dueAtDate = update.dueAt;
+  const dueAtSql = (dueAtDate instanceof Date && !Number.isNaN(dueAtDate.getTime()))
+    ? formatDayKey(dueAtDate)
+    : formatDayKey(addDays(new Date(), 1));
 
   await client.query(
     `
@@ -255,11 +289,11 @@ async function updateSrsState(client, userId, unitId, quality) {
       ON CONFLICT (user_id, unit_id)
       DO UPDATE SET
         ease = EXCLUDED.ease,
-        interval_days = EXCLUDED.interval_days,
+        interval_days = LEAST(EXCLUDED.interval_days, $6),
         due_at = EXCLUDED.due_at,
         stability = EXCLUDED.stability
     `,
-    [userId, unitId, update.ease, update.interval, dueAtDate]
+    [userId, unitId, update.ease, update.interval, dueAtSql, MAX_INTERVAL_DAYS]
   );
 }
 

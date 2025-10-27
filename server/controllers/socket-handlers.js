@@ -469,14 +469,9 @@ const initialize = (io) => {
         }
       });
 
-<<<<<<< Updated upstream
-      try {
-        await TrainingModel.completeSession(sessionId, {
-=======
       let planUpdate = null;
       try {
         const { userId } = await TrainingModel.completeSession(sessionId, {
->>>>>>> Stashed changes
           totalChars: payload.totalChars || 0,
           errorCount: payload.errorCount || 0,
           correctedErrors: payload.correctedErrors || 0,
@@ -486,14 +481,6 @@ const initialize = (io) => {
           unitStats: mergedStats,
           keystrokes: payload.keystrokes || []
         });
-<<<<<<< Updated upstream
-        for (const race of activeRaces.values()) {
-          if (race?.training?.sessionId === sessionId) {
-            race.training.completed = true;
-          }
-        }
-        safeCallback({ ok: true });
-=======
         if (userId) {
           try {
             planUpdate = await TrainingModel.getPlanForToday(userId);
@@ -517,7 +504,6 @@ const initialize = (io) => {
           plan: planUpdate?.plan || null,
           progress: planUpdate?.progress || null
         });
->>>>>>> Stashed changes
       } catch (err) {
         console.error('training:complete error', err);
         safeCallback({ ok: false, error: 'FAILED_TO_COMPLETE' });

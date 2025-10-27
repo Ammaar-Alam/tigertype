@@ -55,6 +55,47 @@ const loadRaceState = () => {
   }
 };
 
+const DEFAULT_PLAN_PROGRESS = {
+  completedBlockIds: [],
+  completedCount: 0,
+  nextIndex: 0
+};
+
+const sanitizePlanProgress = (plan, progress, fallback = DEFAULT_PLAN_PROGRESS) => {
+  const blocks = Array.isArray(plan?.blocks) ? plan.blocks : [];
+  const fallbackProgress = fallback || DEFAULT_PLAN_PROGRESS;
+
+  const completedBlockIds = Array.isArray(progress?.completedBlockIds)
+    ? [...progress.completedBlockIds]
+    : Array.isArray(fallbackProgress.completedBlockIds)
+      ? [...fallbackProgress.completedBlockIds]
+      : [];
+
+  const completedCountRaw =
+    progress?.completedCount ??
+    fallbackProgress.completedCount ??
+    0;
+  const completedCount = Math.max(
+    0,
+    Math.min(completedCountRaw, blocks.length)
+  );
+
+  const nextIndexRaw =
+    progress?.nextIndex ??
+    fallbackProgress.nextIndex ??
+    0;
+  const nextIndex = Math.max(
+    0,
+    Math.min(nextIndexRaw, blocks.length)
+  );
+
+  return {
+    completedBlockIds,
+    completedCount,
+    nextIndex
+  };
+};
+
 const DEFAULT_TRAINING_STATE = {
   enabled: false,
   sessionId: null,
@@ -68,8 +109,14 @@ const DEFAULT_TRAINING_STATE = {
   nextTargets: [],
   blockMeta: null,
   planLoading: false,
-  planError: null
+  planError: null,
+  planProgress: { ...DEFAULT_PLAN_PROGRESS }
 };
+
+const createDefaultTrainingState = () => ({
+  ...DEFAULT_TRAINING_STATE,
+  planProgress: { ...DEFAULT_PLAN_PROGRESS }
+});
 
 export const RaceProvider = ({ children }) => {
   const { socket, connected } = useSocket();
@@ -100,7 +147,7 @@ export const RaceProvider = ({ children }) => {
       enabled: false,
       duration: 15          // Default duration in seconds
     },
-    training: { ...DEFAULT_TRAINING_STATE },
+    training: createDefaultTrainingState(),
     snippetFilters: {       // Filters for snippets
       difficulty: 'all',
       type: 'all',
@@ -220,28 +267,60 @@ export const RaceProvider = ({ children }) => {
       }));
 
       const response = await axios.get('/api/training/plan');
-      const plan = response.data || null;
-      const blocks = Array.isArray(plan?.blocks) ? plan.blocks : [];
-      const nextIndex = 0;
-      const nextBlock = blocks[nextIndex] || null;
+      const payload = response.data || {};
+      const plan = payload.plan || null;
+      const progressPayload = payload.progress || null;
 
-      setRaceState((prev) => ({
-        ...prev,
-        training: {
-          ...prev.training,
-          plan,
-          planLoading: false,
-          planError: null,
-          dueCount: plan?.dueCount || 0,
-          currentBlockIndex: nextIndex,
-          blockMeta: nextBlock,
-          nextTargets: nextBlock?.targets || [],
-          focusLetters: (nextBlock?.targets || [])
-            .filter((target) => target.unitType === 'char')
-            .map((target) => target.token),
-          focusUnits: nextBlock?.targets || []
+      setRaceState((prev) => {
+        const prevTraining = prev.training || DEFAULT_TRAINING_STATE;
+        const blocks = Array.isArray(plan?.blocks) ? plan.blocks : [];
+        const planProgress = sanitizePlanProgress(plan, progressPayload, prevTraining.planProgress);
+        const prevProgressForPlan = sanitizePlanProgress(plan, prevTraining.planProgress);
+
+        let mergedProgress = planProgress;
+        if (prevTraining.plan?.planId && plan?.planId && prevTraining.plan.planId === plan.planId) {
+          if ((prevProgressForPlan.completedCount || 0) > (planProgress.completedCount || 0)) {
+            const mergedIds = new Set([
+              ...(planProgress.completedBlockIds || []),
+              ...(prevProgressForPlan.completedBlockIds || [])
+            ]);
+            const mergedList = Array.from(mergedIds).filter((id) =>
+              blocks.some((block) => block.id === id)
+            );
+            const mergedCount = Math.min(blocks.length, mergedList.length);
+            const nextIndexFallback = blocks.findIndex((block) => !mergedIds.has(block.id));
+            mergedProgress = {
+              completedBlockIds: mergedList,
+              completedCount: mergedCount,
+              nextIndex: nextIndexFallback === -1 ? blocks.length : nextIndexFallback
+            };
+          }
         }
-      }));
+
+        const upcomingBlock =
+          mergedProgress.nextIndex < blocks.length ? blocks[mergedProgress.nextIndex] : null;
+        const focusUnits = upcomingBlock?.targets || [];
+        const focusLetters = focusUnits
+          .filter((target) => target.unitType === 'char')
+          .map((target) => target.token);
+
+        return {
+          ...prev,
+          training: {
+            ...prevTraining,
+            plan,
+            planProgress: mergedProgress,
+            planLoading: false,
+            planError: null,
+            dueCount: plan?.dueCount || 0,
+            currentBlockIndex: mergedProgress.nextIndex,
+            blockMeta: upcomingBlock,
+            nextTargets: focusUnits,
+            focusUnits,
+            focusLetters
+          }
+        };
+      });
     } catch (err) {
       console.error('Failed to fetch training plan', err);
       setRaceState((prev) => ({
@@ -464,7 +543,7 @@ export const RaceProvider = ({ children }) => {
       const serverTraining = data.training;
       const computedTrainingState = (prevTrainingState) => {
         if (!serverTraining?.enabled) {
-          return { ...DEFAULT_TRAINING_STATE };
+          return createDefaultTrainingState();
         }
 
         const existingPlan = prevTrainingState.plan;
@@ -472,19 +551,21 @@ export const RaceProvider = ({ children }) => {
         const planMatches =
           existingPlan && planIdFromServer && existingPlan.planId === planIdFromServer;
         const plan = planMatches ? existingPlan : null;
-
-        const blocks = plan?.blocks || [];
+        const blocks = Array.isArray(plan?.blocks) ? plan.blocks : [];
+        const planProgress = sanitizePlanProgress(plan, serverTraining.planProgress, prevTrainingState.planProgress);
         const targetBlockId = serverTraining.plan?.blockId;
-        let resolvedIndex = prevTrainingState.currentBlockIndex || 0;
+        let resolvedIndex = planProgress.nextIndex;
         if (plan && targetBlockId) {
           const idx = blocks.findIndex((block) => block.id === targetBlockId);
           if (idx >= 0) {
             resolvedIndex = idx;
           }
         }
-        const resolvedBlock = plan ? blocks[resolvedIndex] || blocks[0] || null : null;
+        const resolvedBlock = plan ? blocks[resolvedIndex] || null : null;
 
-        const focusUnits = serverTraining.targets || resolvedBlock?.targets || [];
+        const focusUnits = (Array.isArray(serverTraining.targets) && serverTraining.targets.length)
+          ? serverTraining.targets
+          : (resolvedBlock?.targets || prevTrainingState.nextTargets || []);
         const focusLetters =
           focusUnits
             .filter((target) => target.unitType === 'char')
@@ -499,6 +580,7 @@ export const RaceProvider = ({ children }) => {
           wordPoolSize: serverTraining.wordPoolSize || prevTrainingState.wordPoolSize || 800,
           latestStats: null,
           plan,
+          planProgress,
           planLoading: planMatches ? prevTrainingState.planLoading : false,
           planError: planMatches ? prevTrainingState.planError : null,
           dueCount: serverTraining.plan?.dueCount ?? prevTrainingState.dueCount ?? 0,
@@ -522,7 +604,7 @@ export const RaceProvider = ({ children }) => {
         snippet: data.snippet ? { ...data.snippet, text: sanitizeSnippetText(data.snippet.text) } : null,
         settings: data.settings || prev.settings, // Store settings from server
         players: data.players || [],
-        training: computedTrainingState(prev.training || DEFAULT_TRAINING_STATE)
+        training: computedTrainingState(prev.training || createDefaultTrainingState())
       }));
     };
 
@@ -1288,27 +1370,45 @@ export const RaceProvider = ({ children }) => {
             };
 
             if (prev.training.plan) {
-              const blocks = prev.training.plan.blocks || [];
-              const nextIndex = (prev.training.currentBlockIndex || 0) + 1;
-              if (nextIndex < blocks.length) {
-                const nextBlock = blocks[nextIndex];
-                nextTrainingState.currentBlockIndex = nextIndex;
-                nextTrainingState.blockMeta = nextBlock;
-                nextTrainingState.nextTargets = nextBlock?.targets || [];
-                nextTrainingState.focusUnits = nextBlock?.targets || [];
-                nextTrainingState.focusLetters = (nextBlock?.targets || [])
-                  .filter((target) => target.unitType === 'char')
-                  .map((target) => target.token);
-              } else {
-                nextTrainingState.plan = null;
-                nextTrainingState.currentBlockIndex = 0;
-                nextTrainingState.blockMeta = null;
-                nextTrainingState.nextTargets = [];
-                nextTrainingState.focusUnits = [];
-                nextTrainingState.focusLetters = [];
-                nextTrainingState.planLoading = false;
-                nextTrainingState.planError = null;
+              const plan = prev.training.plan;
+              const blocks = Array.isArray(plan.blocks) ? plan.blocks : [];
+              const prevProgress = sanitizePlanProgress(plan, prev.training.planProgress);
+              const completedIds = new Set(prevProgress.completedBlockIds || []);
+              const completedBlockId =
+                prev.training.blockMeta?.id ||
+                trainingPayload?.blockMeta?.id ||
+                null;
+
+              if (completedBlockId && blocks.some((block) => block.id === completedBlockId)) {
+                completedIds.add(completedBlockId);
               }
+
+              const completedBlockIds = Array.from(completedIds);
+              const completedCount = Math.min(completedBlockIds.length, blocks.length);
+              const nextIndexRaw = blocks.findIndex((block) => !completedIds.has(block.id));
+              const normalizedNextIndex = nextIndexRaw === -1 ? blocks.length : nextIndexRaw;
+              const planComplete = normalizedNextIndex >= blocks.length;
+              const upcomingBlock = !planComplete && normalizedNextIndex < blocks.length
+                ? blocks[normalizedNextIndex]
+                : null;
+
+              nextTrainingState.planProgress = {
+                completedBlockIds,
+                completedCount,
+                nextIndex: normalizedNextIndex
+              };
+
+              nextTrainingState.currentBlockIndex = planComplete
+                ? Math.max(blocks.length - 1, 0)
+                : normalizedNextIndex;
+
+              nextTrainingState.blockMeta = upcomingBlock;
+              nextTrainingState.nextTargets = upcomingBlock?.targets || [];
+              nextTrainingState.focusUnits = upcomingBlock?.targets || [];
+              nextTrainingState.focusLetters = (upcomingBlock?.targets || [])
+                .filter((target) => target.unitType === 'char')
+                .map((target) => target.token);
+              nextTrainingState.planLoading = false;
             }
 
             nextState.training = nextTrainingState;
@@ -1335,7 +1435,59 @@ export const RaceProvider = ({ children }) => {
               finalized: true
             };
             payload.training = completedPayload;
-            socket.emit('training:complete', completedPayload, () => {});
+            socket.emit('training:complete', completedPayload, (response) => {
+              if (!response?.ok) {
+                setRaceState(prev => ({
+                  ...prev,
+                  training: {
+                    ...prev.training,
+                    planLoading: false,
+                    planError: response?.error || prev.training?.planError || 'Failed to update training plan'
+                  }
+                }));
+                return;
+              }
+
+              setRaceState(prev => {
+                if (!prev.training?.enabled) {
+                  return prev;
+                }
+                const prevTraining = prev.training;
+                const planFromResponse = response.plan || prevTraining.plan || null;
+                const planProgress = sanitizePlanProgress(
+                  planFromResponse,
+                  response.progress,
+                  prevTraining.planProgress
+                );
+                const blocks = Array.isArray(planFromResponse?.blocks) ? planFromResponse.blocks : [];
+                const upcomingBlock =
+                  planProgress.nextIndex < blocks.length ? blocks[planProgress.nextIndex] : null;
+                const focusUnits = upcomingBlock?.targets || prevTraining.nextTargets || [];
+                const focusLetters = focusUnits.length
+                  ? focusUnits
+                      .filter((target) => target.unitType === 'char')
+                      .map((target) => target.token)
+                  : prevTraining.focusLetters || [];
+
+                return {
+                  ...prev,
+                  training: {
+                    ...prevTraining,
+                    plan: planFromResponse,
+                    planProgress,
+                    planLoading: false,
+                    planError: null,
+                    dueCount: planFromResponse?.dueCount ?? prevTraining.dueCount ?? 0,
+                    currentBlockIndex: planProgress.nextIndex,
+                    blockMeta: upcomingBlock || prevTraining.blockMeta,
+                    nextTargets: focusUnits,
+                    focusUnits,
+                    focusLetters
+                  }
+                };
+              });
+              refreshTrainingPlan();
+            });
           }
 
           socket.emit('race:result', payload);
@@ -1373,7 +1525,7 @@ export const RaceProvider = ({ children }) => {
         enabled: false,
         duration: 15
       },
-      training: { ...DEFAULT_TRAINING_STATE },
+      training: createDefaultTrainingState(),
       snippetFilters: {
         difficulty: 'all',
         type: 'all',

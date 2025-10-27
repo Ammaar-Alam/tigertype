@@ -48,10 +48,24 @@ function TestConfigurator({
 
   const planBlocks = trainingState?.plan?.blocks || [];
   const totalBlocks = planBlocks.length;
-  const currentIndexRaw = trainingState?.currentBlockIndex ?? 0;
-  const completedBlocks = Math.max(0, Math.min(currentIndexRaw, totalBlocks));
-  const activeIndex = completedBlocks < totalBlocks ? completedBlocks : Math.max(totalBlocks - 1, 0);
-  const progressPercent = totalBlocks ? Math.round((completedBlocks / totalBlocks) * 100) : 0;
+  const planProgress = trainingState?.planProgress || {};
+  const completedIdSet = new Set(
+    Array.isArray(planProgress.completedBlockIds) ? planProgress.completedBlockIds : []
+  );
+  const completedBlocksRaw =
+    planProgress?.completedCount != null
+      ? planProgress.completedCount
+      : completedIdSet.size;
+  const completedBlocks = Math.max(0, Math.min(completedBlocksRaw, totalBlocks));
+  const nextIndexRaw =
+    planProgress?.nextIndex != null ? planProgress.nextIndex : completedBlocks;
+  const activeIndex = totalBlocks
+    ? (nextIndexRaw < totalBlocks ? nextIndexRaw : Math.max(totalBlocks - 1, 0))
+    : 0;
+  const progressPercent = totalBlocks
+    ? Math.round((completedBlocks / totalBlocks) * 100)
+    : 0;
+  const planComplete = totalBlocks > 0 && completedBlocks >= totalBlocks;
 
   // Fetch available difficulties when category or subject filters change
   React.useEffect(() => {
@@ -338,43 +352,37 @@ function TestConfigurator({
         </div>
 
         {testMode === 'training' && (
-          <div className="training-focus-inline" aria-label="Adaptive training focus">
-            <div className="focus-header">
-              <TrainingIcon />
-              <span className="label">Next Targets</span>
-              {typeof refreshTrainingPlan === 'function' && (
-                <button
-                  type="button"
-                  className="refresh-plan-button"
-                  onClick={() => refreshTrainingPlan()}
-                  disabled={trainingState?.planLoading}
-                >
-                  {trainingState?.planLoading ? 'Refreshing…' : 'Refresh Plan'}
-                </button>
-              )}
-            </div>
-            <div className="focus-values">
-              {(trainingState?.nextTargets && trainingState.nextTargets.length)
-                ? trainingState.nextTargets.slice(0, 6).map((target) => (
-                    <span key={`${target.unitType}:${target.token}`} className="focus-chip">
-                      {target.token.toUpperCase()}
-                    </span>
-                  ))
-                : (<span className="placeholder">Complete more sessions to unlock a personalised plan</span>)}
-            </div>
-          </div>
-        )}
-
-        {testMode === 'training' && (
           <div className="training-plan-stack">
-            <div className="training-focus-inline" aria-label="Adaptive training focus letters">
-              <div className="focus-header">
+            <div className="training-focus-card" aria-label="Adaptive training focus">
+              <div className="focus-header primary">
                 <TrainingIcon />
-                <span className="label">Focus</span>
+                <span className="label">Next targets</span>
+                {typeof refreshTrainingPlan === 'function' && (
+                  <button
+                    type="button"
+                    className="refresh-plan-button"
+                    onClick={() => refreshTrainingPlan()}
+                    disabled={trainingState?.planLoading}
+                  >
+                    {trainingState?.planLoading ? 'Refreshing…' : 'Refresh Plan'}
+                  </button>
+                )}
               </div>
-              <span className="value">
+              <div className="focus-values">
+                {(trainingState?.nextTargets && trainingState.nextTargets.length)
+                  ? trainingState.nextTargets.slice(0, 6).map((target) => (
+                      <span key={`${target.unitType}:${target.token}`} className="focus-chip">
+                        {target.token.toUpperCase()}
+                      </span>
+                    ))
+                  : (<span className="placeholder">Complete more sessions to unlock a personalised plan</span>)}
+              </div>
+              <div className="focus-header secondary">
+                <span className="label">Current focus</span>
+              </div>
+              <span className="focus-summary">
                 {(trainingState?.focusLetters && trainingState.focusLetters.length)
-                  ? trainingState.focusLetters.slice(0, 6).join(', ')
+                  ? trainingState.focusLetters.slice(0, 8).join(', ')
                   : 'Collect training data to personalise drills'}
               </span>
             </div>
@@ -400,7 +408,11 @@ function TestConfigurator({
                   <div className="plan-progress-track" aria-hidden="true">
                     <div className="plan-progress-fill" style={{ width: `${progressPercent}%` }}></div>
                   </div>
-                  <span className="plan-progress-label">{completedBlocks}/{totalBlocks} blocks completed</span>
+                  <span className="plan-progress-label">
+                    {planComplete
+                      ? 'Plan complete — great work!'
+                      : `${completedBlocks}/${totalBlocks} blocks completed`}
+                  </span>
                 </div>
               )}
 
@@ -411,23 +423,24 @@ function TestConfigurator({
                 <div className="plan-loading">Loading adaptive plan…</div>
               )}
               {trainingState?.plan && totalBlocks > 0 && (
-                <ul className="training-plan-list">
+                <div className="plan-block-row">
                   {planBlocks.map((block, idx) => {
-                    const isActive = idx === activeIndex;
-                    const isCompleted = idx < completedBlocks;
+                    const isCompleted = completedIdSet.size
+                      ? completedIdSet.has(block.id)
+                      : idx < completedBlocks;
+                    const isActive = !planComplete && idx === activeIndex;
+
                     return (
-                      <li
+                      <div
                         key={block.id}
-                        className={`${isActive ? 'active' : ''} ${isCompleted ? 'completed' : ''}`}
+                        className={`plan-block-chip ${isActive ? 'active' : ''} ${isCompleted ? 'completed' : ''}`}
                       >
-                        <div className="plan-block-meta">
-                          <span className="block-step">{idx + 1}</span>
-                          <div className="block-copy">
-                            <span className="block-type">{block.type}</span>
-                            <span className="block-duration">{block.seconds || 0}s</span>
-                          </div>
+                        <div className="plan-chip-header">
+                          <span>{idx + 1}. {block.type}</span>
+                          {isCompleted ? <i className="bi bi-check" aria-label="Completed"></i> : null}
+                          {!isCompleted && isActive ? <span className="chip-status">Up next</span> : null}
                         </div>
-                        <div className="block-targets">
+                        <div className="plan-chip-targets">
                           {(block.targets || []).length
                             ? block.targets.slice(0, 4).map((target) => (
                                 <span
@@ -437,18 +450,19 @@ function TestConfigurator({
                                   {target.token.toUpperCase()}
                                 </span>
                               ))
-                            : <span className="placeholder">General skill mix</span>}
+                            : <span className="placeholder">General mix</span>}
                         </div>
-                        <div className="block-status" aria-hidden="true">
-                          {isCompleted ? <i className="bi bi-check" /> : (isActive && completedBlocks < totalBlocks ? <span>Up next</span> : '')}
-                        </div>
-                      </li>
+                        <span className="block-duration">{block.seconds || 0}s</span>
+                      </div>
                     );
                   })}
-                </ul>
+                </div>
               )}
               {!trainingState?.plan && !trainingState?.planLoading && !trainingState?.planError && (
                 <div className="plan-empty">Start a session to generate an adaptive plan.</div>
+              )}
+              {planComplete && (
+                <div className="plan-footnote">All blocks cleared for today — new drills unlock after midnight ET.</div>
               )}
               {typeof trainingState?.dueCount === 'number' && (
                 <div className="plan-footnote">{trainingState.dueCount} units due for review</div>
@@ -598,6 +612,11 @@ TestConfigurator.propTypes = {
         seconds: PropTypes.number,
         targets: PropTypes.array
       }))
+    }),
+    planProgress: PropTypes.shape({
+      completedBlockIds: PropTypes.arrayOf(PropTypes.string),
+      completedCount: PropTypes.number,
+      nextIndex: PropTypes.number
     }),
     planLoading: PropTypes.bool,
     planError: PropTypes.string,
