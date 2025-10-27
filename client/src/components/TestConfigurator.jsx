@@ -42,6 +42,9 @@ function TestConfigurator({
   const [subjects, setSubjects] = React.useState(['all']);
   const isMounted = React.useRef(false);
 
+  const [planPreview, setPlanPreview] = React.useState(null);
+  const [planLoading, setPlanLoading] = React.useState(false);
+
   // Store available difficulties for the current category/subject filters
   const [availableDifficulties, setAvailableDifficulties] = React.useState(DIFFICULTIES);
 
@@ -201,6 +204,31 @@ function TestConfigurator({
     }
   };
 
+  React.useEffect(() => {
+    const fetchPlanPreview = async () => {
+      if (testMode !== 'training') {
+        setPlanPreview(null);
+        return;
+      }
+      try {
+        setPlanLoading(true);
+        const response = await fetch('/api/training/plan');
+        if (!response.ok) {
+          throw new Error(`Failed to fetch training plan: ${response.status}`);
+        }
+        const data = await response.json();
+        setPlanPreview(data);
+      } catch (error) {
+        console.error('Failed to fetch training plan:', error);
+        setPlanPreview(null);
+      } finally {
+        setPlanLoading(false);
+      }
+    };
+
+    fetchPlanPreview();
+  }, [testMode, trainingState?.latestStats]);
+
   // Handle duration changes - immediately update and reload if in timed mode
   const handleDurationChange = (duration) => {
     // First update the duration state
@@ -311,13 +339,27 @@ function TestConfigurator({
     );
   };
 
+  const formatSeconds = (seconds) => {
+    if (seconds == null) return '';
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.max(0, seconds % 60);
+    if (mins > 0) {
+      return `${mins}m ${secs.toString().padStart(2, '0')}s`;
+    }
+    return `${secs}s`;
+  };
+
   // ------------------------------
   // Render
   // ------------------------------
 
+  const activePlan = trainingState?.plan || planPreview;
+  const blocks = activePlan?.blocks || [];
+  const totalPlanSeconds = blocks.reduce((sum, block) => sum + (block.seconds || 0), 0);
+
   return (
     <TutorialAnchor anchorId="configurator">
-      <div className={`test-configurator ${isLobby ? 'lobby' : ''}`}> 
+      <div className={`test-configurator ${isLobby ? 'lobby' : ''}`}>
         {snippetError && <div className="config-error">{snippetError}</div>}
         {/* Mode Selection Group */}
         <div className="config-section mode-selection">
@@ -335,6 +377,32 @@ function TestConfigurator({
                 ? trainingState.focusLetters.slice(0, 6).join(', ')
                 : 'Collect training data to personalise drills'}
             </span>
+          </div>
+        )}
+
+        {testMode === 'training' && (
+          <div className="training-plan-preview" aria-live="polite">
+            {planLoading ? (
+              <span className="plan-status">Loading today’s plan…</span>
+            ) : blocks.length ? (
+              <>
+                <div className="plan-chip-row" role="list">
+                  {blocks.map((block, idx) => (
+                    <span className={`plan-chip plan-${block.type}`} role="listitem" key={`${block.type}-${idx}`}>
+                      {block.type.charAt(0).toUpperCase() + block.type.slice(1)} · {formatSeconds(block.seconds || 0)}
+                    </span>
+                  ))}
+                </div>
+                <div className="plan-meta">
+                  <span className="plan-summary">Total · {formatSeconds(totalPlanSeconds || activePlan?.totalSeconds || 0)}</span>
+                  {activePlan?.focus?.length ? (
+                    <span className="plan-focus">Next up: {activePlan.focus.slice(0, 3).map((unit) => unit.display || unit.token).join(', ')}</span>
+                  ) : null}
+                </div>
+              </>
+            ) : (
+              <span className="plan-status">Complete a session to unlock adaptive plans.</span>
+            )}
           </div>
         )}
 

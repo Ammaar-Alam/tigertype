@@ -1,4 +1,241 @@
 const db = require('../config/database');
+const { assembleBlocks } = require('../utils/training-content');
+
+const UNIT_TYPE_WEIGHTS = {
+  char: 1,
+  digit: 1,
+  punct: 1,
+  digraph: 2,
+  trigraph: 3,
+  word: 4
+};
+
+const DEFAULT_EASE = 2.5;
+const MIN_EASE = 1.3;
+
+function normaliseUnitToken(token = '') {
+  if (typeof token !== 'string') return '';
+  return token.trim().toLowerCase().slice(0, 16);
+}
+
+function calculateMistakeRate(exposures = 0, mistakes = 0) {
+  const exp = Math.max(0, Number(exposures) || 0);
+  const err = Math.max(0, Number(mistakes) || 0);
+  return (err + 1) / (exp + 2);
+}
+
+function calculateLatencyAverage(latencyMsSum = 0, latencySamples = 0) {
+  const samples = Math.max(0, Number(latencySamples) || 0);
+  if (!samples) return null;
+  const sum = Number(latencyMsSum) || 0;
+  return sum / samples;
+}
+
+function severityScore({
+  exposures = 0,
+  mistakes = 0,
+  latencyAverage = null,
+  latencyReference = null,
+  lastSeen = null
+}) {
+  const mistakeRate = calculateMistakeRate(exposures, mistakes);
+  let latencyScore = 0;
+  if (latencyAverage != null && latencyReference != null && latencyReference > 0) {
+    const over = latencyAverage / latencyReference;
+    latencyScore = Math.max(0, over - 1);
+  }
+  let recencyScore = 0.1;
+  if (lastSeen) {
+    const deltaMs = Date.now() - new Date(lastSeen).getTime();
+    const days = deltaMs / (1000 * 60 * 60 * 24);
+    const weight = Math.exp(-Math.max(0, days) / 7);
+    recencyScore = 0.1 * (1 - weight);
+  }
+  return 0.6 * mistakeRate + 0.3 * latencyScore + recencyScore;
+}
+
+function qualityFromStats({ accuracyPct = 100, latency = null, baselineLatency = null }) {
+  const accQ = Math.round(accuracyPct / 20);
+  let penalty = 0;
+  if (latency != null && baselineLatency) {
+    if (latency > baselineLatency * 1.2) {
+      penalty = 2;
+    } else if (latency > baselineLatency * 1.1) {
+      penalty = 1;
+    }
+  }
+  return Math.max(0, Math.min(5, accQ - penalty));
+}
+
+function sm2Update({ ease = DEFAULT_EASE, interval = 0 }, quality) {
+  const clampedQ = Math.max(0, Math.min(5, Number(quality) || 0));
+  const newEase = Math.max(
+    MIN_EASE,
+    ease + (0.1 - (5 - clampedQ) * (0.08 + (5 - clampedQ) * 0.02))
+  );
+  let newInterval = 1;
+  if (clampedQ <= 2) {
+    newInterval = 1;
+  } else if (interval <= 1) {
+    newInterval = 1;
+  } else {
+    newInterval = Math.round(interval * newEase);
+  }
+  const dueAt = new Date();
+  dueAt.setDate(dueAt.getDate() + newInterval);
+  return { ease: newEase, interval: newInterval, dueAt };
+}
+
+async function ensureUnit(unitType, token, display = null, client = db) {
+  const type = (unitType || 'char').toLowerCase();
+  const normalisedToken = normaliseUnitToken(token);
+  if (!normalisedToken) {
+    throw new Error('ensureUnit requires a token');
+  }
+  const result = await client.query(
+    `
+      INSERT INTO training_units (unit_type, token, display)
+      VALUES ($1, $2, $3)
+      ON CONFLICT (unit_type, token)
+      DO UPDATE SET display = COALESCE(training_units.display, EXCLUDED.display)
+      RETURNING id
+    `,
+    [type, normalisedToken, display]
+  );
+  return result.rows[0].id;
+}
+
+async function upsertUnitTotals(client, userId, unitId, {
+  exposures = 0,
+  mistakes = 0,
+  extraHits = 0,
+  latencyMsSum = 0,
+  latencySamples = 0
+} = {}) {
+  await client.query(
+    `
+      INSERT INTO training_user_unit_totals (user_id, unit_id, exposures, mistakes, extra_hits, latency_ms_sum, latency_samples, last_seen)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+      ON CONFLICT (user_id, unit_id) DO UPDATE
+      SET
+        exposures = training_user_unit_totals.exposures + EXCLUDED.exposures,
+        mistakes = training_user_unit_totals.mistakes + EXCLUDED.mistakes,
+        extra_hits = training_user_unit_totals.extra_hits + EXCLUDED.extra_hits,
+        latency_ms_sum = training_user_unit_totals.latency_ms_sum + EXCLUDED.latency_ms_sum,
+        latency_samples = training_user_unit_totals.latency_samples + EXCLUDED.latency_samples,
+        last_seen = now()
+    `,
+    [userId, unitId, exposures, mistakes, extraHits, latencyMsSum, latencySamples]
+  );
+}
+
+async function updateSrsState(client, userId, unitId, quality) {
+  const current = await client.query(
+    `
+      SELECT ease, interval_days
+      FROM training_user_unit_srs
+      WHERE user_id = $1 AND unit_id = $2
+    `,
+    [userId, unitId]
+  );
+
+  const prev = current.rows[0] || { ease: DEFAULT_EASE, interval_days: 0 };
+  const next = sm2Update({ ease: Number(prev.ease) || DEFAULT_EASE, interval: Number(prev.interval_days) || 0 }, quality);
+
+  await client.query(
+    `
+      INSERT INTO training_user_unit_srs (user_id, unit_id, ease, interval_days, due_at)
+      VALUES ($1, $2, $3, $4, $5)
+      ON CONFLICT (user_id, unit_id) DO UPDATE
+      SET ease = EXCLUDED.ease,
+          interval_days = EXCLUDED.interval_days,
+          due_at = EXCLUDED.due_at
+    `,
+    [userId, unitId, next.ease, next.interval, next.dueAt]
+  );
+  return next;
+}
+
+async function fetchUnitTotals(userId) {
+  const result = await db.query(
+    `
+      SELECT
+        u.id,
+        u.unit_type,
+        u.token,
+        u.display,
+        t.exposures,
+        t.mistakes,
+        t.extra_hits,
+        t.latency_ms_sum,
+        t.latency_samples,
+        t.p50_latency_ms,
+        t.p90_latency_ms,
+        t.last_seen
+      FROM training_user_unit_totals t
+      JOIN training_units u ON u.id = t.unit_id
+      WHERE t.user_id = $1
+    `,
+    [userId]
+  );
+  return result.rows;
+}
+
+async function fetchUserSrs(userId) {
+  const result = await db.query(
+    `
+      SELECT unit_id, ease, interval_days, due_at
+      FROM training_user_unit_srs
+      WHERE user_id = $1
+    `,
+    [userId]
+  );
+  const map = new Map();
+  result.rows.forEach((row) => {
+    map.set(row.unit_id, row);
+  });
+  return map;
+}
+
+function computeBaselines(unitRows = []) {
+  const totals = unitRows.reduce(
+    (acc, row) => {
+      const avg = calculateLatencyAverage(row.latency_ms_sum, row.latency_samples);
+      if (avg != null) {
+        acc.sum += avg * (row.latency_samples || 1);
+        acc.samples += row.latency_samples || 1;
+      }
+      acc.mistakeWeighted += calculateMistakeRate(row.exposures, row.mistakes);
+      acc.items += 1;
+      return acc;
+    },
+    { sum: 0, samples: 0, mistakeWeighted: 0, items: 0 }
+  );
+  const latency = totals.samples ? totals.sum / totals.samples : null;
+  const mistakeRate = totals.items ? totals.mistakeWeighted / totals.items : 0.04;
+  return { latency, mistakeRate };
+}
+
+function uniqueBy(arr, keyFn) {
+  const seen = new Set();
+  const output = [];
+  arr.forEach((item) => {
+    const key = keyFn(item);
+    if (!seen.has(key)) {
+      seen.add(key);
+      output.push(item);
+    }
+  });
+  return output;
+}
+
+function chunkArray(array, size) {
+  const result = [];
+  for (let i = 0; i < array.length; i += size) {
+    result.push(array.slice(i, i + size));
+  }
+  return result;
+}
 
 /**
  * Training model responsible for adaptive practice session persistence.
@@ -14,9 +251,16 @@ const TrainingModel = {
    * @param {string|null} options.snippetId
    * @returns {Promise<Object>}
    */
-  async createSession(userId, { mode = 'adaptive', durationSeconds = null, config = {}, snippetId = null } = {}) {
+  async createSession(
+    userId,
+    { mode = 'adaptive', durationSeconds = null, config = {}, snippetId = null, plan = null } = {}
+  ) {
     if (!userId) {
       throw new Error('createSession requires a userId');
+    }
+    const payloadConfig = { ...config };
+    if (plan) {
+      payloadConfig.plan = plan;
     }
     const result = await db.query(
       `
@@ -24,7 +268,7 @@ const TrainingModel = {
         VALUES ($1, $2, $3, $4::jsonb, $5)
         RETURNING *
       `,
-      [userId, mode, durationSeconds, JSON.stringify(config || {}), snippetId]
+      [userId, mode, durationSeconds, JSON.stringify(payloadConfig || {}), snippetId]
     );
     return result.rows[0];
   },
@@ -52,7 +296,9 @@ const TrainingModel = {
       correctedErrors = 0,
       wpm = null,
       accuracy = null,
-      charStats = []
+      charStats = [],
+      unitStats = [],
+      keystrokes = []
     } = payload;
 
     const client = await db.getClient();
@@ -80,6 +326,20 @@ const TrainingModel = {
       }
 
       const userId = sessionResult.rows[0].user_id;
+
+      let baselineRows = [];
+      if (unitStats && unitStats.length) {
+        const baselineResult = await client.query(
+          `
+            SELECT exposures, mistakes, latency_ms_sum, latency_samples
+            FROM training_user_unit_totals
+            WHERE user_id = $1
+          `,
+          [userId]
+        );
+        baselineRows = baselineResult.rows;
+      }
+      const baselines = computeBaselines(baselineRows);
 
       if (charStats.length) {
         for (const stat of charStats) {
@@ -122,6 +382,84 @@ const TrainingModel = {
         }
       }
 
+      if (Array.isArray(unitStats) && unitStats.length) {
+        for (const stat of unitStats) {
+          const token = normaliseUnitToken(stat.token || stat.character || stat.unit || '');
+          if (!token) continue;
+          const unitType = (stat.unitType || (token.length > 1 ? 'digraph' : 'char')).toLowerCase();
+          const display = stat.display || token.toUpperCase();
+          const exposures = Math.max(0, parseInt(stat.exposures || 0, 10));
+          const mistakes = Math.max(0, parseInt(stat.mistakes || 0, 10));
+          const extraHits = Math.max(0, parseInt(stat.extraHits || 0, 10));
+          const latencySamples = Math.max(0, parseInt(stat.latencySamples || stat.latencyCount || 0, 10));
+          const latencyMsSum = Math.max(0, parseInt(stat.latencyMsSum || stat.latencyTotal || 0, 10));
+          const unitId = await ensureUnit(unitType, token, display, client);
+
+          await upsertUnitTotals(client, userId, unitId, {
+            exposures,
+            mistakes,
+            extraHits,
+            latencyMsSum,
+            latencySamples
+          });
+
+          const accuracyPct = exposures > 0 ? ((exposures - mistakes) / exposures) * 100 : 100;
+          const latencyAvg = latencySamples > 0 ? latencyMsSum / latencySamples : null;
+          const quality = qualityFromStats({
+            accuracyPct,
+            latency: latencyAvg,
+            baselineLatency: baselines.latency
+          });
+          await updateSrsState(client, userId, unitId, quality);
+        }
+      }
+
+      if (Array.isArray(keystrokes) && keystrokes.length) {
+        const values = keystrokes
+          .filter((event) => event && Number.isInteger(event.t))
+          .map((event, idx) => ({
+            idx: Number.isInteger(event.idx) ? event.idx : idx,
+            t: event.t,
+            expected: (event.expected || '').toString(),
+            actual: (event.actual || '').toString(),
+            correct: Boolean(event.correct),
+            backspace: Boolean(event.backspace),
+            dwell: event.dwellMs != null ? parseInt(event.dwellMs, 10) : null,
+            flight: event.flightMs != null ? parseInt(event.flightMs, 10) : null
+          }));
+        if (values.length) {
+          const insertValues = values
+            .map(
+              (event) =>
+                client.query(
+                  `
+                    INSERT INTO training_keystrokes (session_id, idx, t_ms, expected, actual, correct, backspace, dwell_ms, flight_ms)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                    ON CONFLICT (session_id, idx) DO UPDATE
+                    SET expected = EXCLUDED.expected,
+                        actual = EXCLUDED.actual,
+                        correct = EXCLUDED.correct,
+                        backspace = EXCLUDED.backspace,
+                        dwell_ms = EXCLUDED.dwell_ms,
+                        flight_ms = EXCLUDED.flight_ms
+                  `,
+                  [
+                    sessionId,
+                    event.idx,
+                    event.t,
+                    event.expected,
+                    event.actual,
+                    event.correct,
+                    event.backspace,
+                    event.dwell,
+                    event.flight
+                  ]
+                )
+            );
+          await Promise.all(insertValues);
+        }
+      }
+
       await client.query('COMMIT');
     } catch (err) {
       await client.query('ROLLBACK');
@@ -149,6 +487,11 @@ const TrainingModel = {
       [userId]
     );
     return result.rows;
+  },
+
+  async getUnitTotals(userId) {
+    if (!userId) return [];
+    return fetchUnitTotals(userId);
   },
 
   /**
@@ -205,6 +548,107 @@ const TrainingModel = {
     return scored.slice(0, limit).map((row) => row.char);
   },
 
+  async getWeakUnits(userId, limit = 6) {
+    if (!userId) return [];
+    const totals = await fetchUnitTotals(userId);
+    if (!totals.length) {
+      return [];
+    }
+    const baselines = computeBaselines(totals);
+    const latencyReference = baselines.latency || 220;
+    const scored = totals
+      .filter((row) => (row.exposures || 0) > 5)
+      .map((row) => {
+        const latencyAverage = row.p90_latency_ms || calculateLatencyAverage(row.latency_ms_sum, row.latency_samples);
+        const severity = severityScore({
+          exposures: row.exposures,
+          mistakes: row.mistakes,
+          latencyAverage,
+          latencyReference,
+          lastSeen: row.last_seen
+        });
+        return {
+          id: row.id,
+          unitType: row.unit_type,
+          token: row.token,
+          display: row.display || row.token,
+          exposures: Number(row.exposures || 0),
+          mistakes: Number(row.mistakes || 0),
+          latencyAverage,
+          severity
+        };
+      })
+      .sort((a, b) => b.severity - a.severity);
+    return scored.slice(0, limit);
+  },
+
+  async getDueUnits(userId, date = new Date()) {
+    if (!userId) return [];
+    const targetDate = date instanceof Date ? date.toISOString().slice(0, 10) : date;
+    const result = await db.query(
+      `
+        SELECT
+          u.id,
+          u.unit_type,
+          u.token,
+          u.display,
+          s.ease,
+          s.interval_days,
+          s.due_at
+        FROM training_user_unit_srs s
+        JOIN training_units u ON u.id = s.unit_id
+        WHERE s.user_id = $1
+          AND s.due_at <= $2::date
+        ORDER BY s.due_at ASC, s.interval_days DESC
+      `,
+      [userId, targetDate]
+    );
+    return result.rows.map((row) => ({
+      id: row.id,
+      unitType: row.unit_type,
+      token: row.token,
+      display: row.display || row.token,
+      ease: Number(row.ease || DEFAULT_EASE),
+      intervalDays: Number(row.interval_days || 0),
+      dueAt: row.due_at
+    }));
+  },
+
+  async getPlanForToday(userId, { maxCoreBlocks = 4 } = {}) {
+    const weak = await this.getWeakUnits(userId, 8);
+    const due = await this.getDueUnits(userId, new Date());
+    let focus = uniqueBy([...due, ...weak], (item) => `${item.unitType}:${item.token}`);
+    if (!focus.length) {
+      // seed with common high-yield letters
+      focus = [
+        { unitType: 'char', token: 't', display: 'T' },
+        { unitType: 'char', token: 'h', display: 'H' },
+        { unitType: 'char', token: 'e', display: 'E' }
+      ];
+    }
+    const warmupTargets = focus.slice(0, 2);
+    const blocks = [{ type: 'warmup', seconds: 45, targets: warmupTargets }];
+    const coreChunks = chunkArray(focus, 3).slice(0, maxCoreBlocks);
+    coreChunks.forEach((targets) => {
+      blocks.push({ type: 'core', seconds: 60, targets });
+    });
+    blocks.push({ type: 'cooldown', seconds: 30, targets: warmupTargets });
+    const assembled = assembleBlocks(blocks);
+    return {
+      blocks: assembled,
+      focus,
+      dueCount: due.length
+    };
+  },
+
+  async getDiagnostics(userId) {
+    const [weak, due] = await Promise.all([
+      this.getWeakUnits(userId, 8),
+      this.getDueUnits(userId, new Date())
+    ]);
+    return { weak, due };
+  },
+
   /**
    * Produce a summary bundle including totals, char breakdown, and recommendations.
    * @param {number} userId
@@ -233,7 +677,11 @@ const TrainingModel = {
     );
 
     const totals = totalsResult.rows[0] || {};
-    const charTotals = await this.getCharTotals(userId);
+    const [charTotals, unitTotals, diagnostics] = await Promise.all([
+      this.getCharTotals(userId),
+      this.getUnitTotals(userId),
+      this.getDiagnostics(userId)
+    ]);
     const recommendations = await this.getRecommendations(userId);
 
     const formattedCharTotals = charTotals.map((row) => {
@@ -254,6 +702,25 @@ const TrainingModel = {
       };
     });
 
+    const formattedUnitTotals = unitTotals.map((row) => {
+      const exposures = Number(row.exposures || 0);
+      const mistakes = Number(row.mistakes || 0);
+      const accuracy = exposures > 0 ? ((exposures - mistakes) / exposures) * 100 : 100;
+      const latencyAvg = calculateLatencyAverage(row.latency_ms_sum, row.latency_samples);
+      return {
+        id: row.id,
+        unitType: row.unit_type,
+        token: row.token,
+        display: row.display || row.token,
+        exposures,
+        mistakes,
+        accuracy,
+        latencyAvg,
+        p50Latency: row.p50_latency_ms != null ? Number(row.p50_latency_ms) : null,
+        p90Latency: row.p90_latency_ms != null ? Number(row.p90_latency_ms) : null
+      };
+    });
+
     return {
       totals: {
         completedSessions: Number(totals.completed_sessions || 0),
@@ -262,7 +729,9 @@ const TrainingModel = {
         lastCompletedAt: totals.last_completed
       },
       charTotals: formattedCharTotals,
-      recommendations
+      unitTotals: formattedUnitTotals,
+      recommendations,
+      diagnostics
     };
   }
 };

@@ -118,7 +118,13 @@ export const RaceProvider = ({ children }) => {
 
   const createTrainingTracker = () => ({
     charStats: {},
+    unitStats: {},
+    pendingUnitDeltas: {},
+    keystrokes: [],
     lastKeystrokeTs: null,
+    lastExpectedChar: null,
+    lastEventTime: null,
+    lastIntervalMs: 0,
     lastCorrectChars: 0,
     totalChars: 0,
     errorCount: 0,
@@ -152,9 +158,22 @@ export const RaceProvider = ({ children }) => {
         };
       });
 
+      const unitStats = Object.entries(tracker.unitStats || {}).map(([token, stat]) => ({
+        token,
+        unitType: stat.unitType,
+        display: stat.display,
+        exposures: stat.exposures,
+        mistakes: stat.mistakes,
+        extraHits: stat.extraHits,
+        latencySamples: stat.latencySamples,
+        latencyMsSum: stat.totalLatencyMs
+      }));
+
       return {
         sessionId: raceState.training?.sessionId || null,
         charStats,
+        unitStats,
+        keystrokes: tracker.keystrokes?.slice(0, 2000) || [],
         totalChars: totalChars || tracker.totalChars || 0,
         errorCount: totalErrors || tracker.errorCount || 0,
         correctedErrors: tracker.correctedErrors || totalErrors || 0,
@@ -187,6 +206,28 @@ export const RaceProvider = ({ children }) => {
       resetTrainingTracker();
     }
   }, [raceState.training?.sessionId, raceState.training?.enabled, resetTrainingTracker]);
+
+  useEffect(() => {
+    if (!socket || !connected) return undefined;
+    if (!raceState.training?.enabled || !raceState.training.sessionId) return undefined;
+
+    const interval = setInterval(() => {
+      const tracker = trainingTrackerRef.current;
+      if (!tracker || !tracker.pendingUnitDeltas) return;
+      const items = Object.values(tracker.pendingUnitDeltas).filter((delta) =>
+        delta && (delta.exposures || delta.mistakes || delta.extraHits)
+      );
+      if (items.length) {
+        socket.emit('training:unitsDelta', {
+          sessionId: raceState.training.sessionId,
+          items
+        });
+        tracker.pendingUnitDeltas = {};
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [socket, connected, raceState.training?.enabled, raceState.training?.sessionId]);
 
   // Local typing state
   const [typingState, setTypingState] = useState({
@@ -299,6 +340,8 @@ export const RaceProvider = ({ children }) => {
             sessionId: data.training.sessionId || null,
             focusLetters: data.training.focusLetters || [],
             wordPoolSize: data.training.wordPoolSize || 1000,
+            plan: data.training.plan || null,
+            totalSeconds: data.training.totalSeconds || null,
             latestStats: null
           }
         : {
@@ -306,6 +349,8 @@ export const RaceProvider = ({ children }) => {
             sessionId: null,
             focusLetters: [],
             wordPoolSize: 1000,
+            plan: null,
+            totalSeconds: null,
             latestStats: null
           };
       setRaceState(prev => ({
@@ -790,9 +835,81 @@ export const RaceProvider = ({ children }) => {
     const text = raceState.snippet?.text || '';
     const trainingActive = raceState.training?.enabled;
     const tracker = trainingTrackerRef.current;
+    const previousInput = typingState.input;
+
+    const recordKeystroke = (expected, actual, correct, backspace = false) => {
+      if (!trainingActive) return;
+      const base = raceState.startTime || now;
+      const t = Math.max(0, now - base);
+      const previousEvent = tracker.lastEventTime != null ? tracker.lastEventTime : now;
+      tracker.lastIntervalMs = Math.max(0, now - previousEvent);
+      tracker.keystrokes.push({
+        idx: tracker.keystrokes.length,
+        t,
+        expected,
+        actual,
+        correct,
+        backspace
+      });
+      tracker.lastEventTime = now;
+    };
+
     if (trainingActive) {
+      if (input.length === previousInput.length + 1) {
+        const actualChar = input[input.length - 1] || '';
+        const expectedChar = text[Math.min(input.length - 1, text.length - 1)] || '';
+        recordKeystroke(expectedChar, actualChar, actualChar === expectedChar, false);
+      } else if (input.length + 1 === previousInput.length) {
+        const expectedChar = text[Math.min(input.length, text.length - 1)] || '';
+        recordKeystroke(expectedChar, 'BACKSPACE', false, true);
+      }
       tracker.totalChars = Math.max(tracker.totalChars || 0, input.length);
     }
+
+    const bumpUnitStat = (token, unitType, field) => {
+      if (!trainingActive || !token) return;
+      const normalisedToken = token.toString().toLowerCase().slice(0, 16);
+      const key = `${unitType}:${normalisedToken}`;
+      if (!tracker.unitStats[key]) {
+        tracker.unitStats[key] = {
+          unitType,
+          display: token.toUpperCase ? token.toUpperCase() : token,
+          exposures: 0,
+          mistakes: 0,
+          extraHits: 0,
+          totalLatencyMs: 0,
+          latencySamples: 0
+        };
+      }
+      const stat = tracker.unitStats[key];
+      if (!stat[field]) {
+        stat[field] = 0;
+      }
+      stat[field] += 1;
+      const latency = tracker.lastIntervalMs || 0;
+      stat.totalLatencyMs += latency;
+      stat.latencySamples += 1;
+
+      if (!tracker.pendingUnitDeltas[key]) {
+        tracker.pendingUnitDeltas[key] = {
+          unitType,
+          token: normalisedToken,
+          display: token.toUpperCase ? token.toUpperCase() : token,
+          exposures: 0,
+          mistakes: 0,
+          extraHits: 0,
+          latencyMsSum: 0,
+          latencySamples: 0
+        };
+      }
+      const delta = tracker.pendingUnitDeltas[key];
+      if (!delta[field]) {
+        delta[field] = 0;
+      }
+      delta[field] += 1;
+      delta.latencyMsSum += latency;
+      delta.latencySamples += 1;
+    };
 
     const bumpTrainingStat = (charKey, field) => {
       if (!trainingActive) return;
@@ -807,11 +924,18 @@ export const RaceProvider = ({ children }) => {
         };
       }
       const stat = tracker.charStats[key];
-      const latency = tracker.lastKeystrokeTs != null ? Math.max(0, now - tracker.lastKeystrokeTs) : 0;
+      const latency = tracker.lastIntervalMs || 0;
       tracker.lastKeystrokeTs = now;
       stat[field] += 1;
       stat.totalLatencyMs += latency;
       stat.latencySamples += 1;
+      if (field === 'exposures') {
+        bumpUnitStat(key, 'char', 'exposures');
+      } else if (field === 'mistakes') {
+        bumpUnitStat(key, 'char', 'mistakes');
+      } else if (field === 'extraHits') {
+        bumpUnitStat('extra', 'char', 'extraHits');
+      }
     };
     let correctChars = 0;
     let currentErrors = 0;
@@ -859,7 +983,12 @@ export const RaceProvider = ({ children }) => {
     // Only increment error count if this is a new error
     if (isNewError) {
       totalErrors += 1;
-      bumpTrainingStat(text[firstErrorPosition] || ' ', 'mistakes');
+      const expectedChar = text[firstErrorPosition] || ' ';
+      bumpTrainingStat(expectedChar, 'mistakes');
+      if (firstErrorPosition > 0) {
+        const prevChar = text[firstErrorPosition - 1] || '';
+        bumpUnitStat(`${prevChar}${expectedChar}`, 'digraph', 'mistakes');
+      }
     }
     
     // For accuracy calculation:
@@ -934,7 +1063,12 @@ export const RaceProvider = ({ children }) => {
       if (deltaCorrect > 0) {
         for (let i = 0; i < deltaCorrect; i += 1) {
           const position = previousCorrectChars + i;
-          bumpTrainingStat(text[position] || ' ', 'exposures');
+          const expectedChar = text[position] || ' ';
+          bumpTrainingStat(expectedChar, 'exposures');
+          if (position > 0) {
+            const prevChar = text[position - 1] || '';
+            bumpUnitStat(`${prevChar}${expectedChar}`, 'digraph', 'exposures');
+          }
         }
       }
       if (input.length > text.length) {
