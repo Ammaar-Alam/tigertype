@@ -29,7 +29,8 @@ function Lobby() {
     startPrivateRace,
     loadNewSnippet,
     setRaceState,
-    snippetError
+    snippetError,
+    refreshTrainingPlan
   } = useRace();
 
   const [isLoading, setIsLoading] = useState(true);
@@ -274,6 +275,7 @@ function Lobby() {
                     loadNewSnippet={loadNewSnippet}
                     snippetError={snippetError}
                     onShowLeaderboard={() => {}} // Disable leaderboard button in lobby
+                    refreshTrainingPlan={refreshTrainingPlan}
                   />
                 ) : (
                   <div className="read-only-settings">

@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import axios from 'axios';
 import { useSocket } from './SocketContext';
 import { useAuth } from './AuthContext';
 
@@ -54,6 +55,22 @@ const loadRaceState = () => {
   }
 };
 
+const DEFAULT_TRAINING_STATE = {
+  enabled: false,
+  sessionId: null,
+  focusLetters: [],
+  focusUnits: [],
+  wordPoolSize: 800,
+  latestStats: null,
+  plan: null,
+  currentBlockIndex: 0,
+  dueCount: 0,
+  nextTargets: [],
+  blockMeta: null,
+  planLoading: false,
+  planError: null
+};
+
 export const RaceProvider = ({ children }) => {
   const { socket, connected } = useSocket();
   const { user } = useAuth();
@@ -83,13 +100,7 @@ export const RaceProvider = ({ children }) => {
       enabled: false,
       duration: 15          // Default duration in seconds
     },
-    training: {
-      enabled: false,
-      sessionId: null,
-      focusLetters: [],
-      wordPoolSize: 1000,
-      latestStats: null
-    },
+    training: { ...DEFAULT_TRAINING_STATE },
     snippetFilters: {       // Filters for snippets
       difficulty: 'all',
       type: 'all',
@@ -118,7 +129,10 @@ export const RaceProvider = ({ children }) => {
 
   const createTrainingTracker = () => ({
     charStats: {},
+    unitStats: new Map(),
+    deltaUnits: new Map(),
     lastKeystrokeTs: null,
+    lastExpectedChar: null,
     lastCorrectChars: 0,
     totalChars: 0,
     errorCount: 0,
@@ -129,6 +143,116 @@ export const RaceProvider = ({ children }) => {
 
   const resetTrainingTracker = useCallback(() => {
     trainingTrackerRef.current = createTrainingTracker();
+  }, []);
+
+  const updateUnitStat = useCallback((unitType, token, delta) => {
+    if (!unitType || !token) return;
+    const tracker = trainingTrackerRef.current;
+    if (!tracker) return;
+    const key = `${unitType}:${token}`;
+
+    if (!tracker.unitStats.has(key)) {
+      tracker.unitStats.set(key, {
+        unitType,
+        token,
+        exposures: 0,
+        mistakes: 0,
+        extraHits: 0,
+        latencyMsSum: 0,
+        latencySamples: 0
+      });
+    }
+    const aggregateEntry = tracker.unitStats.get(key);
+    aggregateEntry.exposures += delta.exposures || 0;
+    aggregateEntry.mistakes += delta.mistakes || 0;
+    aggregateEntry.extraHits += delta.extraHits || 0;
+    aggregateEntry.latencyMsSum += delta.latencyMsSum || 0;
+    aggregateEntry.latencySamples += delta.latencySamples || 0;
+
+    if (!tracker.deltaUnits.has(key)) {
+      tracker.deltaUnits.set(key, {
+        unitType,
+        token,
+        exposures: 0,
+        mistakes: 0,
+        extraHits: 0,
+        latencyMsSum: 0,
+        latencySamples: 0
+      });
+    }
+    const deltaEntry = tracker.deltaUnits.get(key);
+    deltaEntry.exposures += delta.exposures || 0;
+    deltaEntry.mistakes += delta.mistakes || 0;
+    deltaEntry.extraHits += delta.extraHits || 0;
+    deltaEntry.latencyMsSum += delta.latencyMsSum || 0;
+    deltaEntry.latencySamples += delta.latencySamples || 0;
+  }, []);
+
+  const flushUnitDeltas = useCallback(() => {
+    const tracker = trainingTrackerRef.current;
+    if (!tracker) return [];
+    const items = Array.from(tracker.deltaUnits.values()).filter(
+      (item) =>
+        item.exposures || item.mistakes || item.extraHits || item.latencyMsSum || item.latencySamples
+    );
+    tracker.deltaUnits = new Map();
+    return items;
+  }, []);
+
+  const getUnitStatsSnapshot = useCallback(() => {
+    const tracker = trainingTrackerRef.current;
+    if (!tracker) return [];
+    return Array.from(tracker.unitStats.values()).filter(
+      (item) =>
+        item.exposures || item.mistakes || item.extraHits || item.latencyMsSum || item.latencySamples
+    );
+  }, []);
+
+  const refreshTrainingPlan = useCallback(async () => {
+    try {
+      setRaceState((prev) => ({
+        ...prev,
+        training: {
+          ...prev.training,
+          planLoading: true,
+          planError: null
+        }
+      }));
+
+      const response = await axios.get('/api/training/plan');
+      const plan = response.data || null;
+      const blocks = Array.isArray(plan?.blocks) ? plan.blocks : [];
+      const nextIndex = 0;
+      const nextBlock = blocks[nextIndex] || null;
+
+      setRaceState((prev) => ({
+        ...prev,
+        training: {
+          ...prev.training,
+          plan,
+          planLoading: false,
+          planError: null,
+          dueCount: plan?.dueCount || 0,
+          currentBlockIndex: nextIndex,
+          blockMeta: nextBlock,
+          nextTargets: nextBlock?.targets || [],
+          focusLetters: (nextBlock?.targets || [])
+            .filter((target) => target.unitType === 'char')
+            .map((target) => target.token),
+          focusUnits: nextBlock?.targets || []
+        }
+      }));
+    } catch (err) {
+      console.error('Failed to fetch training plan', err);
+      setRaceState((prev) => ({
+        ...prev,
+        training: {
+          ...prev.training,
+          planLoading: false,
+          planError: err?.message || 'Failed to load training plan'
+        }
+      }));
+    }
   }, []);
 
   const buildTrainingPayload = useCallback(
@@ -151,19 +275,30 @@ export const RaceProvider = ({ children }) => {
           latencySamples: samples
         };
       });
+      const unitStats = getUnitStatsSnapshot();
+      const planSummary = raceState.training?.plan
+        ? {
+            planId: raceState.training.plan.planId,
+            generatedAt: raceState.training.plan.generatedAt || null,
+            currentBlockIndex: raceState.training.currentBlockIndex || 0
+          }
+        : null;
 
       return {
         sessionId: raceState.training?.sessionId || null,
         charStats,
+        unitStats,
         totalChars: totalChars || tracker.totalChars || 0,
         errorCount: totalErrors || tracker.errorCount || 0,
         correctedErrors: tracker.correctedErrors || totalErrors || 0,
         durationSeconds: durationSeconds ?? null,
         wpm: wpm != null ? wpm : null,
-        accuracy: accuracy != null ? accuracy : null
+        accuracy: accuracy != null ? accuracy : null,
+        plan: planSummary,
+        blockMeta: raceState.training?.blockMeta || null
       };
     },
-    [raceState.training?.enabled, raceState.training?.sessionId]
+    [raceState.training?.enabled, raceState.training?.sessionId, raceState.training?.plan, raceState.training?.currentBlockIndex, raceState.training?.blockMeta, getUnitStatsSnapshot]
   );
 
   // Persist wordDifficulty to localStorage
@@ -187,6 +322,40 @@ export const RaceProvider = ({ children }) => {
       resetTrainingTracker();
     }
   }, [raceState.training?.sessionId, raceState.training?.enabled, resetTrainingTracker]);
+
+  useEffect(() => {
+    if (!socket || !connected) return undefined;
+    if (!raceState.training?.enabled || !raceState.training?.sessionId) return undefined;
+
+    const interval = setInterval(() => {
+      const items = flushUnitDeltas();
+      if (items.length) {
+        socket.emit('training:unitsDelta', {
+          sessionId: raceState.training.sessionId,
+          items
+        });
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [
+    socket,
+    connected,
+    raceState.training?.enabled,
+    raceState.training?.sessionId,
+    flushUnitDeltas
+  ]);
+
+  useEffect(() => {
+    if (raceState.training?.enabled && !raceState.training?.plan && !raceState.training?.planLoading) {
+      refreshTrainingPlan();
+    }
+  }, [
+    raceState.training?.enabled,
+    raceState.training?.plan,
+    raceState.training?.planLoading,
+    refreshTrainingPlan
+  ]);
 
   // Local typing state
   const [typingState, setTypingState] = useState({
@@ -292,22 +461,58 @@ export const RaceProvider = ({ children }) => {
     
     // Event handlers
     const handleRaceJoined = (data) => {
-      // console.log('Joined race:', data);
-      const nextTrainingState = data.training?.enabled
-        ? {
-            enabled: true,
-            sessionId: data.training.sessionId || null,
-            focusLetters: data.training.focusLetters || [],
-            wordPoolSize: data.training.wordPoolSize || 1000,
-            latestStats: null
+      const serverTraining = data.training;
+      const computedTrainingState = (prevTrainingState) => {
+        if (!serverTraining?.enabled) {
+          return { ...DEFAULT_TRAINING_STATE };
+        }
+
+        const existingPlan = prevTrainingState.plan;
+        const planIdFromServer = serverTraining.plan?.planId;
+        const planMatches =
+          existingPlan && planIdFromServer && existingPlan.planId === planIdFromServer;
+        const plan = planMatches ? existingPlan : null;
+
+        const blocks = plan?.blocks || [];
+        const targetBlockId = serverTraining.plan?.blockId;
+        let resolvedIndex = prevTrainingState.currentBlockIndex || 0;
+        if (plan && targetBlockId) {
+          const idx = blocks.findIndex((block) => block.id === targetBlockId);
+          if (idx >= 0) {
+            resolvedIndex = idx;
           }
-        : {
-            enabled: false,
-            sessionId: null,
-            focusLetters: [],
-            wordPoolSize: 1000,
-            latestStats: null
-          };
+        }
+        const resolvedBlock = plan ? blocks[resolvedIndex] || blocks[0] || null : null;
+
+        const focusUnits = serverTraining.targets || resolvedBlock?.targets || [];
+        const focusLetters =
+          focusUnits
+            .filter((target) => target.unitType === 'char')
+            .map((target) => target.token) || prevTrainingState.focusLetters || [];
+
+        return {
+          ...prevTrainingState,
+          enabled: true,
+          sessionId: serverTraining.sessionId || null,
+          focusLetters,
+          focusUnits,
+          wordPoolSize: serverTraining.wordPoolSize || prevTrainingState.wordPoolSize || 800,
+          latestStats: null,
+          plan,
+          planLoading: planMatches ? prevTrainingState.planLoading : false,
+          planError: planMatches ? prevTrainingState.planError : null,
+          dueCount: serverTraining.plan?.dueCount ?? prevTrainingState.dueCount ?? 0,
+          currentBlockIndex: resolvedIndex,
+          blockMeta: resolvedBlock || {
+            id: serverTraining.plan?.blockId || null,
+            type: serverTraining.plan?.blockType || 'core',
+            seconds: data.snippet?.duration || 60,
+            targets: focusUnits
+          },
+          nextTargets: focusUnits
+        };
+      };
+
       setRaceState(prev => ({
         ...prev,
         code: data.code,
@@ -317,7 +522,7 @@ export const RaceProvider = ({ children }) => {
         snippet: data.snippet ? { ...data.snippet, text: sanitizeSnippetText(data.snippet.text) } : null,
         settings: data.settings || prev.settings, // Store settings from server
         players: data.players || [],
-        training: nextTrainingState
+        training: computedTrainingState(prev.training || DEFAULT_TRAINING_STATE)
       }));
     };
 
@@ -608,16 +813,40 @@ export const RaceProvider = ({ children }) => {
     console.log('Joining practice mode...');
     
     // Pass test configuration and current snippet filters
+    const baseWordPool = wordDifficulty === 'easy' ? 200 : 1000;
+    const trainingEnabled = raceState.training?.enabled;
     const options = {
-      testMode: raceState.timedTest?.enabled ? 'timed' : 'snippet',
-      testDuration: raceState.timedTest?.duration || 15,
-      wordPoolSize: wordDifficulty === 'easy' ? '200' : '1000', // Map difficulty to size
+      testMode: trainingEnabled
+        ? 'training'
+        : (raceState.timedTest?.enabled ? 'timed' : 'snippet'),
+      testDuration: trainingEnabled
+        ? (raceState.timedTest?.duration || 60)
+        : (raceState.timedTest?.duration || 15),
+      wordPoolSize: baseWordPool,
       snippetFilters: {
         difficulty: snippetDifficulty || 'all',
         type: snippetCategory || 'all',
         department: snippetSubject || 'all'
       }
     };
+
+    if (trainingEnabled) {
+      const plan = raceState.training?.plan;
+      const blocks = plan?.blocks || [];
+      const currentIndex = raceState.training?.currentBlockIndex ?? 0;
+      const block = blocks[currentIndex] || blocks[0] || null;
+      options.trainingMode = true;
+      options.trainingWordPoolSize = baseWordPool;
+      if (block) {
+        options.testDuration = block.seconds || options.testDuration;
+        options.trainingPlan = {
+          planId: plan?.planId,
+          blockId: block.id,
+          wordPoolSize: baseWordPool
+        };
+        options.trainingFocus = (block.targets || []).map((target) => target.token);
+      }
+    }
     // console.log('Joining practice with options:', options);
     socket.emit('practice:join', options);
   };
@@ -687,7 +916,7 @@ export const RaceProvider = ({ children }) => {
         testMode: trainingEnabled
           ? 'training'
           : (currentState.timedTest?.enabled ? 'timed' : 'snippet'),
-        testDuration: currentState.timedTest?.duration || (trainingEnabled ? 30 : 15),
+        testDuration: currentState.timedTest?.duration || (trainingEnabled ? 60 : 15),
         wordPoolSize: trainingEnabled
           ? (currentState.training?.wordPoolSize || defaultWordPool)
           : defaultWordPool,
@@ -700,8 +929,22 @@ export const RaceProvider = ({ children }) => {
 
       if (trainingEnabled) {
         options.trainingMode = true;
-        options.trainingFocus = currentState.training?.focusLetters || [];
         options.trainingWordPoolSize = options.wordPoolSize;
+        const plan = currentState.training?.plan;
+        const blocks = plan?.blocks || [];
+        const index = currentState.training?.currentBlockIndex ?? 0;
+        const block = blocks[index] || blocks[0] || currentState.training?.blockMeta || null;
+        if (block) {
+          options.testDuration = block.seconds || options.testDuration;
+          options.trainingPlan = {
+            planId: plan?.planId,
+            blockId: block.id,
+            wordPoolSize: options.wordPoolSize
+          };
+          options.trainingFocus = (block.targets || []).map((target) => target.token);
+        } else {
+          options.trainingFocus = currentState.training?.focusLetters || [];
+        }
       }
       
       // console.log('Requesting new practice snippet with options:', options);
@@ -794,11 +1037,14 @@ export const RaceProvider = ({ children }) => {
       tracker.totalChars = Math.max(tracker.totalChars || 0, input.length);
     }
 
-    const bumpTrainingStat = (charKey, field) => {
+    const bumpTrainingStat = (charKey, field, options = {}) => {
       if (!trainingActive) return;
-      const key = (charKey ?? ' ').toString().slice(0, 2) || ' ';
-      if (!tracker.charStats[key]) {
-        tracker.charStats[key] = {
+      const rawKey = (charKey ?? ' ').toString();
+      const isExtra = rawKey === 'extra';
+      const token = isExtra ? 'extra' : (rawKey.slice(0, 1) || ' ');
+
+      if (!tracker.charStats[token]) {
+        tracker.charStats[token] = {
           exposures: 0,
           mistakes: 0,
           extraHits: 0,
@@ -806,12 +1052,45 @@ export const RaceProvider = ({ children }) => {
           latencySamples: 0
         };
       }
-      const stat = tracker.charStats[key];
+      const stat = tracker.charStats[token];
+
+      if (field === 'extraHits') {
+        stat.extraHits += 1;
+        if (!isExtra) {
+          updateUnitStat('char', token, { extraHits: 1 });
+        }
+        return;
+      }
+
       const latency = tracker.lastKeystrokeTs != null ? Math.max(0, now - tracker.lastKeystrokeTs) : 0;
       tracker.lastKeystrokeTs = now;
       stat[field] += 1;
       stat.totalLatencyMs += latency;
       stat.latencySamples += 1;
+      tracker.lastExpectedChar = token;
+
+      if (!isExtra) {
+        updateUnitStat('char', token, {
+          exposures: field === 'exposures' ? 1 : 0,
+          mistakes: field === 'mistakes' ? 1 : 0,
+          latencyMsSum: latency,
+          latencySamples: 1
+        });
+      }
+
+      const prevChar = options.prevChar ? options.prevChar.toString().slice(0, 1) : null;
+      if (prevChar && !isExtra) {
+        const digraph = (prevChar + token).toLowerCase();
+        if (field === 'exposures') {
+          updateUnitStat('digraph', digraph, {
+            exposures: 1,
+            latencyMsSum: latency,
+            latencySamples: 1
+          });
+        } else if (field === 'mistakes') {
+          updateUnitStat('digraph', digraph, { mistakes: 1 });
+        }
+      }
     };
     let correctChars = 0;
     let currentErrors = 0;
@@ -859,7 +1138,8 @@ export const RaceProvider = ({ children }) => {
     // Only increment error count if this is a new error
     if (isNewError) {
       totalErrors += 1;
-      bumpTrainingStat(text[firstErrorPosition] || ' ', 'mistakes');
+      const prevChar = firstErrorPosition > 0 ? text[firstErrorPosition - 1] : null;
+      bumpTrainingStat(text[firstErrorPosition] || ' ', 'mistakes', { prevChar });
     }
     
     // For accuracy calculation:
@@ -934,7 +1214,8 @@ export const RaceProvider = ({ children }) => {
       if (deltaCorrect > 0) {
         for (let i = 0; i < deltaCorrect; i += 1) {
           const position = previousCorrectChars + i;
-          bumpTrainingStat(text[position] || ' ', 'exposures');
+          const prevChar = position > 0 ? text[position - 1] : null;
+          bumpTrainingStat(text[position] || ' ', 'exposures', { prevChar });
         }
       }
       if (input.length > text.length) {
@@ -1001,10 +1282,36 @@ export const RaceProvider = ({ children }) => {
           };
 
           if (trainingPayload && prev.training?.enabled) {
-            nextState.training = {
+            const nextTrainingState = {
               ...prev.training,
               latestStats: trainingPayload
             };
+
+            if (prev.training.plan) {
+              const blocks = prev.training.plan.blocks || [];
+              const nextIndex = (prev.training.currentBlockIndex || 0) + 1;
+              if (nextIndex < blocks.length) {
+                const nextBlock = blocks[nextIndex];
+                nextTrainingState.currentBlockIndex = nextIndex;
+                nextTrainingState.blockMeta = nextBlock;
+                nextTrainingState.nextTargets = nextBlock?.targets || [];
+                nextTrainingState.focusUnits = nextBlock?.targets || [];
+                nextTrainingState.focusLetters = (nextBlock?.targets || [])
+                  .filter((target) => target.unitType === 'char')
+                  .map((target) => target.token);
+              } else {
+                nextTrainingState.plan = null;
+                nextTrainingState.currentBlockIndex = 0;
+                nextTrainingState.blockMeta = null;
+                nextTrainingState.nextTargets = [];
+                nextTrainingState.focusUnits = [];
+                nextTrainingState.focusLetters = [];
+                nextTrainingState.planLoading = false;
+                nextTrainingState.planError = null;
+              }
+            }
+
+            nextState.training = nextTrainingState;
           }
 
           return nextState;
@@ -1023,7 +1330,12 @@ export const RaceProvider = ({ children }) => {
           };
 
           if (trainingPayload) {
-            payload.training = trainingPayload;
+            const completedPayload = {
+              ...trainingPayload,
+              finalized: true
+            };
+            payload.training = completedPayload;
+            socket.emit('training:complete', completedPayload, () => {});
           }
 
           socket.emit('race:result', payload);
@@ -1061,13 +1373,7 @@ export const RaceProvider = ({ children }) => {
         enabled: false,
         duration: 15
       },
-      training: {
-        enabled: false,
-        sessionId: null,
-        focusLetters: [],
-        wordPoolSize: 1000,
-        latestStats: null
-      },
+      training: { ...DEFAULT_TRAINING_STATE },
       snippetFilters: {
         difficulty: 'all',
         type: 'all',
@@ -1250,7 +1556,8 @@ export const RaceProvider = ({ children }) => {
         snippetError,
         wordDifficulty,
         setWordDifficulty,
-        getTrainingSnapshot: (overrides) => buildTrainingPayload(overrides)
+        getTrainingSnapshot: (overrides) => buildTrainingPayload(overrides),
+        refreshTrainingPlan
       }}
     >
       {children}

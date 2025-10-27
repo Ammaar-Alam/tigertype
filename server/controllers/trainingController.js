@@ -43,8 +43,41 @@ const getRecommendations = async (req, res) => {
   }
 };
 
+/**
+ * Generate or retrieve today's training plan for the authenticated user.
+ */
+const getPlan = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const plan = await TrainingModel.getPlanForToday(userId, {});
+    res.json(plan);
+  } catch (err) {
+    console.error('Error fetching training plan:', err);
+    res.status(500).json({ error: 'Failed to load training plan' });
+  }
+};
+
+/**
+ * Return current weak units and due units for diagnostics surfaces.
+ */
+const getDiagnostics = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const [weak, due] = await Promise.all([
+      TrainingModel.getWeakUnits(userId, 10),
+      TrainingModel.getDueUnits(userId, new Date())
+    ]);
+    res.json({ weak, due });
+  } catch (err) {
+    console.error('Error fetching training diagnostics:', err);
+    res.status(500).json({ error: 'Failed to load diagnostics' });
+  }
+};
+
 module.exports = {
   getSummary,
   getHistory,
-  getRecommendations
+  getRecommendations,
+  getPlan,
+  getDiagnostics
 };

@@ -10,11 +10,25 @@ import defaultProfileImage from '../assets/icons/default-profile.svg';
 import PropTypes from 'prop-types';
 import ProfileModal from './ProfileModal.jsx';
 
+const KEYBOARD_ROWS = [
+  ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'],
+  ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L'],
+  ['Z', 'X', 'C', 'V', 'B', 'N', 'M']
+];
+
+const accuracyToColor = (accuracy) => {
+  if (accuracy == null) {
+    return 'rgba(255, 255, 255, 0.08)';
+  }
+  const clamped = Math.max(0, Math.min(100, accuracy));
+  const hue = (clamped / 100) * 120; // 0 = red, 120 = green
+  return `hsl(${hue}, 70%, 45%)`;
+};
+
 const TrainingResultsPanel = ({ latestStats, trainingState }) => {
   const [summary, setSummary] = useState(null);
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [showAllChars, setShowAllChars] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -49,21 +63,140 @@ const TrainingResultsPanel = ({ latestStats, trainingState }) => {
     };
   }, []);
 
-  useEffect(() => {
-    setShowAllChars(false);
-  }, [latestStats]);
+  const aggregatedUnits = useMemo(() => {
+    const map = new Map();
 
-  const sessionCharStats = useMemo(() => {
-    return (latestStats?.charStats || [])
-      .filter(stat => stat.exposures > 0)
-      .map(stat => {
-        const accuracy = stat.exposures > 0
-          ? ((stat.exposures - stat.mistakes) / stat.exposures) * 100
-          : 100;
-        return { ...stat, accuracy };
+    if (Array.isArray(summary?.unitTotals)) {
+      summary.unitTotals.forEach((stat) => {
+        const key = `${stat.unitType}:${stat.token}`;
+        map.set(key, {
+          unitType: stat.unitType,
+          token: stat.token,
+          exposures: stat.exposures || 0,
+          mistakes: stat.mistakes || 0,
+          extraHits: stat.extraHits || 0,
+          latencyMsSum: (stat.avgLatencyMs != null && stat.latencySamples != null)
+            ? stat.avgLatencyMs * stat.latencySamples
+            : 0,
+          latencySamples: stat.latencySamples || 0,
+          p50LatencyMs: stat.p50LatencyMs || null,
+          p90LatencyMs: stat.p90LatencyMs || null
+        });
+      });
+    }
+
+    if (Array.isArray(latestStats?.unitStats)) {
+      latestStats.unitStats.forEach((stat) => {
+        const key = `${stat.unitType}:${stat.token}`;
+        if (!map.has(key)) {
+          map.set(key, {
+            unitType: stat.unitType,
+            token: stat.token,
+            exposures: 0,
+            mistakes: 0,
+            extraHits: 0,
+            latencyMsSum: 0,
+            latencySamples: 0,
+            p50LatencyMs: null,
+            p90LatencyMs: null
+          });
+        }
+        const entry = map.get(key);
+        entry.exposures += stat.exposures || 0;
+        entry.mistakes += stat.mistakes || 0;
+        entry.extraHits += stat.extraHits || 0;
+        entry.latencyMsSum += stat.latencyMsSum || 0;
+        entry.latencySamples += stat.latencySamples || 0;
+      });
+    }
+
+    return map;
+  }, [summary, latestStats]);
+
+  const charStatsMap = useMemo(() => {
+    const map = new Map();
+    aggregatedUnits.forEach((stat) => {
+      if (stat.unitType !== 'char') return;
+      const token = stat.token === ' ' ? ' ' : stat.token.toUpperCase();
+      const exposures = stat.exposures || 0;
+      const mistakes = stat.mistakes || 0;
+      const accuracy = exposures > 0 ? ((exposures - mistakes) / exposures) * 100 : null;
+      const avgLatency = stat.latencySamples > 0 ? stat.latencyMsSum / stat.latencySamples : null;
+      map.set(token, {
+        exposures,
+        mistakes,
+        accuracy,
+        avgLatency,
+        p90Latency: stat.p90LatencyMs || null
+      });
+    });
+    return map;
+  }, [aggregatedUnits]);
+
+  const digraphStats = useMemo(() => {
+    return Array.from(aggregatedUnits.values())
+      .filter((stat) => stat.unitType === 'digraph' && (stat.exposures || 0) > 0)
+      .map((stat) => {
+        const exposures = stat.exposures || 0;
+        const mistakes = stat.mistakes || 0;
+        const mistakeRate = ((mistakes + 1) / (exposures + 2)) * 100;
+        const accuracy = exposures > 0 ? ((exposures - mistakes) / exposures) * 100 : null;
+        return {
+          token: stat.token,
+          exposures,
+          mistakeRate,
+          accuracy
+        };
       })
-      .sort((a, b) => b.mistakes - a.mistakes);
-  }, [latestStats]);
+      .sort((a, b) => b.mistakeRate - a.mistakeRate)
+      .slice(0, 6);
+  }, [aggregatedUnits]);
+
+  const planBlocks = trainingState?.plan?.blocks || [];
+  const totalBlocks = planBlocks.length;
+  const currentIndexRaw = trainingState?.currentBlockIndex ?? 0;
+  const completedBlocks = Math.max(0, Math.min(currentIndexRaw, totalBlocks));
+  const upcomingIndex = completedBlocks < totalBlocks ? completedBlocks : Math.max(totalBlocks - 1, 0);
+  const upcomingBlock = planBlocks[upcomingIndex] || null;
+  const completedBlock = latestStats?.blockMeta || (completedBlocks > 0 ? planBlocks[Math.min(completedBlocks - 1, Math.max(planBlocks.length - 1, 0))] : null);
+  const planProgressPercent = totalBlocks ? Math.round((completedBlocks / totalBlocks) * 100) : 0;
+  const planIdSuffix = trainingState?.plan?.planId?.slice(-4) || '';
+
+  const nextRecommendations = useMemo(() => {
+    if (trainingState?.nextTargets?.length) {
+      return trainingState.nextTargets.map((target) => {
+        const key = `${target.unitType}:${target.token}`;
+        const stat = aggregatedUnits.get(key);
+        const exposures = stat?.exposures || 0;
+        const mistakes = stat?.mistakes || 0;
+        const accuracy = exposures > 0 ? ((exposures - mistakes) / exposures) * 100 : null;
+        return {
+          token: target.token,
+          unitType: target.unitType,
+          exposures,
+          accuracy
+        };
+      });
+    }
+
+    if (Array.isArray(summary?.recommendations) && summary.recommendations.length) {
+      return summary.recommendations.slice(0, 6).map((token) => {
+        const key = token.length > 2 ? `word:${token}` : (token.length === 2 ? `digraph:${token}` : `char:${token}`);
+        const stat = aggregatedUnits.get(key);
+        const exposures = stat?.exposures || 0;
+        const mistakes = stat?.mistakes || 0;
+        const accuracy = exposures > 0 ? ((exposures - mistakes) / exposures) * 100 : null;
+        return {
+          token,
+          unitType: token.length > 1 ? 'digraph' : 'char',
+          exposures,
+          accuracy
+        };
+      });
+    }
+
+    return [];
+  }, [trainingState?.nextTargets, summary?.recommendations, aggregatedUnits]);
 
   const historyChart = useMemo(() => {
     const completedSessions = history
@@ -148,268 +281,241 @@ const TrainingResultsPanel = ({ latestStats, trainingState }) => {
     };
   }, [history, latestStats]);
 
-  const focusLetters = trainingState?.focusLetters?.length
-    ? trainingState.focusLetters
-    : summary?.recommendations || [];
+  const describeBlock = (block) => {
+    if (!block) return '';
+    const rawType = block.type ? block.type.replace(/_/g, ' ') : 'Block';
+    const label = rawType.charAt(0).toUpperCase() + rawType.slice(1);
+    const seconds = block.seconds ? `${block.seconds}s` : '';
+    return seconds ? `${label} · ${seconds}` : label;
+  };
 
-  const aggregatedChars = summary?.charTotals?.reduce((acc, item) => acc + (item.exposures || 0), 0) ?? null;
-  const aggregatedMistakes = summary?.charTotals?.reduce((acc, item) => acc + (item.mistakes || 0), 0) ?? null;
+  const summariseTargets = (block) => {
+    if (!block?.targets?.length) return 'Mixed practice';
+    return block.targets
+      .slice(0, 4)
+      .map((target) => target.token.toUpperCase())
+      .join(', ');
+  };
 
   const wpmDisplay = latestStats?.wpm ?? summary?.totals?.avgWpm ?? null;
   const accuracyDisplay = latestStats?.accuracy ?? summary?.totals?.avgAccuracy ?? null;
-  const charactersDisplay = latestStats?.totalChars ?? aggregatedChars ?? '—';
-  const mistakesDisplay = latestStats?.errorCount ?? aggregatedMistakes ?? 0;
+  const charactersDisplay = latestStats?.totalChars ?? null;
+  const mistakesDisplay = latestStats?.errorCount ?? null;
+  const durationDisplay = latestStats?.durationSeconds ?? null;
+  const blockMeta = trainingState?.blockMeta;
 
-  const visibleCharStats = showAllChars ? sessionCharStats : sessionCharStats.slice(0, 12);
-  const showCharToggle = sessionCharStats.length > 12 || (summary?.charTotals?.length ?? 0) > 8;
-  const longTermStats = summary?.charTotals || [];
-  const longTermVisibleStats = showAllChars ? longTermStats : longTermStats.slice(0, 8);
-  const longTermKeys = longTermStats.length;
+  const renderHeatmap = () => (
+    <div className="keyboard-heatmap">
+      {KEYBOARD_ROWS.map((row, idx) => (
+        <div className="keyboard-row" key={`row-${idx}`}>
+          {row.map((key) => {
+            const stat = charStatsMap.get(key);
+            const color = accuracyToColor(stat?.accuracy);
+            const exposures = stat?.exposures || 0;
+            const title = stat
+              ? `${key}: ${stat.accuracy != null ? stat.accuracy.toFixed(1) : '—'}% • ${exposures}x`
+              : `${key}: awaiting data`;
+            return (
+              <div
+                key={key}
+                className="heatmap-key"
+                style={{ backgroundColor: color, opacity: exposures > 0 ? 1 : 0.35 }}
+                title={title}
+              >
+                {key}
+              </div>
+            );
+          })}
+        </div>
+      ))}
+      <div className="keyboard-row space-row">
+        {(() => {
+          const stat = charStatsMap.get(' ');
+          const color = accuracyToColor(stat?.accuracy);
+          const exposures = stat?.exposures || 0;
+          const title = stat
+            ? `Space: ${stat.accuracy != null ? stat.accuracy.toFixed(1) : '—'}% • ${exposures}x`
+            : 'Space: awaiting data';
+          return (
+            <div
+              className="heatmap-key space-key"
+              style={{ backgroundColor: color, opacity: exposures > 0 ? 1 : 0.35 }}
+              title={title}
+            >
+              Space
+            </div>
+          );
+        })()}
+      </div>
+    </div>
+  );
 
-  const formattedCharactersValue = typeof charactersDisplay === 'number'
-    ? charactersDisplay.toLocaleString()
-    : charactersDisplay;
-  const formattedMistakesValue = typeof mistakesDisplay === 'number'
-    ? mistakesDisplay.toLocaleString()
-    : mistakesDisplay;
-
-  const sessionMetaParts = [];
-  if (typeof charactersDisplay === 'number') {
-    sessionMetaParts.push(`${charactersDisplay.toLocaleString()} characters`);
-  }
-  if (sessionCharStats.length) {
-    sessionMetaParts.push(`${sessionCharStats.length} tracked keys`);
-  }
-  const sessionMeta = sessionMetaParts.join(' • ');
-
-  const charGridClasses = ['char-stat-grid'];
-  if (showAllChars && sessionCharStats.length > 12) {
-    charGridClasses.push('scrollable');
-  }
-
-  const longTermGridClasses = ['char-stat-grid', 'long-term-grid'];
-  if (showAllChars && longTermStats.length > 8) {
-    longTermGridClasses.push('scrollable');
+  if (loading && !summary && !latestStats) {
+    return (
+      <div className="training-results-panel">
+        <p className="training-empty">Loading adaptive analytics…</p>
+      </div>
+    );
   }
 
   return (
     <div className="training-results-panel">
       <div className="training-header">
         <div className="training-title-block">
-          <h3>Adaptive Training Session</h3>
-          {focusLetters.length > 0 && (
-            <div className="focus-chips" aria-label="Focus letters this session">
-              {focusLetters.slice(0, 8).map(letter => (
-                <span key={letter} className="focus-chip">
-                  {letter === ' ' ? 'Space' : letter.toUpperCase()}
+          <h3>Adaptive Training Insights</h3>
+          <div className="plan-status-row">
+            {completedBlock && (
+              <div className="plan-pill completed">
+                <span className="pill-label">Completed</span>
+                <span className="pill-value">{describeBlock(completedBlock)}</span>
+              </div>
+            )}
+            {upcomingBlock && (
+              <div className="plan-pill next">
+                <span className="pill-label">Up next</span>
+                <span className="pill-value">
+                  {describeBlock(upcomingBlock)}
+                  {upcomingBlock.targets?.length ? ` • ${summariseTargets(upcomingBlock)}` : ''}
                 </span>
-              ))}
+              </div>
+            )}
+          </div>
+          {trainingState?.plan && totalBlocks > 0 && (
+            <div className="plan-progress-bar">
+              <div className="plan-progress-track">
+                <div className="plan-progress-fill" style={{ width: `${planProgressPercent}%` }}></div>
+              </div>
+              <span className="plan-progress-text">
+                {completedBlocks}/{totalBlocks} blocks complete
+                {planIdSuffix ? ` • Plan ${planIdSuffix}` : ''}
+              </span>
             </div>
           )}
-          {sessionMeta && (
-            <p className="training-session-meta">{sessionMeta}</p>
-          )}
         </div>
-
-        <div className="training-metrics">
+        <div className="training-summary-grid">
           <div className="metric-card">
             <span className="metric-label">WPM</span>
             <span className="metric-value">{wpmDisplay != null ? wpmDisplay.toFixed(1) : '—'}</span>
           </div>
           <div className="metric-card">
             <span className="metric-label">Accuracy</span>
-            <span className="metric-value">
-              {accuracyDisplay != null ? `${accuracyDisplay.toFixed(1)}%` : '—'}
-            </span>
+            <span className="metric-value">{accuracyDisplay != null ? `${accuracyDisplay.toFixed(1)}%` : '—'}</span>
           </div>
           <div className="metric-card">
-            <span className="metric-label">Characters</span>
-            <span className="metric-value">{formattedCharactersValue}</span>
+            <span className="metric-label">Duration</span>
+            <span className="metric-value">{durationDisplay != null ? `${Math.round(durationDisplay)}s` : '—'}</span>
           </div>
           <div className="metric-card">
-            <span className="metric-label">Mistakes</span>
-            <span className="metric-value">{formattedMistakesValue}</span>
+            <span className="metric-label">Errors</span>
+            <span className="metric-value">{mistakesDisplay != null ? mistakesDisplay : '—'}</span>
           </div>
         </div>
       </div>
 
       <div className="training-body">
-        <section className="training-card key-accuracy-card">
-          <div className="card-header">
-            <h4>This Session&apos;s Accuracy by Key</h4>
-            {showCharToggle && (
-              <button
-                type="button"
-                className="char-grid-toggle"
-                onClick={() => setShowAllChars(prev => !prev)}
-                aria-expanded={showAllChars}
-              >
-                View {showAllChars ? 'less' : 'all'}
-              </button>
-            )}
-          </div>
-          {visibleCharStats.length ? (
-            <div className={charGridClasses.join(' ')}>
-              {visibleCharStats.map(stat => {
-                const label = stat.character === ' ' ? 'Space' : stat.character.toUpperCase();
-                return (
-                  <div key={stat.character} className="char-stat-row">
-                    <span className="char-label">{label}</span>
-                    <div className="char-bar">
-                      <div
-                        className="char-bar-fill"
-                        style={{ width: `${Math.max(5, Math.min(100, stat.accuracy))}%` }}
-                      />
-                    </div>
-                    <span className="char-accuracy">{stat.accuracy.toFixed(0)}%</span>
-                    <span className="char-meta">{stat.mistakes}/{stat.exposures}</span>
+        <section className="training-card heatmap-card">
+          <header>
+            <h4>Keyboard heatmap</h4>
+            <span className="card-subtitle">Accuracy by key</span>
+          </header>
+          {renderHeatmap()}
+        </section>
+
+        <section className="training-card digraph-card">
+          <header>
+            <h4>Digraph pressure points</h4>
+            <span className="card-subtitle">Highest mistake rates this week</span>
+          </header>
+          {digraphStats.length ? (
+            <div className="digraph-bars">
+              {digraphStats.map((stat) => (
+                <div key={stat.token} className="digraph-row">
+                  <span className="digraph-token">{stat.token.toUpperCase()}</span>
+                  <div className="digraph-bar">
+                    <div
+                      className="digraph-bar-fill"
+                      style={{ width: `${Math.min(100, stat.mistakeRate)}%` }}
+                    ></div>
                   </div>
-                );
-              })}
+                  <span className="digraph-rate">{stat.mistakeRate.toFixed(1)}%</span>
+                </div>
+              ))}
             </div>
           ) : (
-            <p className="training-empty">Finish a session to see letter-specific feedback.</p>
+            <p className="training-empty">Keep training to surface tricky letter pairs.</p>
           )}
         </section>
 
-        <section className="training-card progress-card">
-          <div className="card-header">
-            <h4>Recent Progress</h4>
-            {loading && <span className="loading-note">Loading…</span>}
-          </div>
+        <section className="training-card nextup-card">
+          <header>
+            <h4>Next up</h4>
+            <span className="card-subtitle">Adaptive plan recommendations</span>
+          </header>
+          {nextRecommendations.length ? (
+            <ul className="nextup-list">
+              {nextRecommendations.map((item) => (
+                <li key={`${item.unitType}:${item.token}`}>
+                  <span className="token-chip">{item.token.toUpperCase()}</span>
+                  <span className="token-meta">
+                    {item.accuracy != null ? `${item.accuracy.toFixed(1)}% accuracy` : 'Awaiting data'}
+                    {item.exposures ? ` · ${item.exposures} reps` : ''}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="training-empty">Finish a session to unlock personalised drills.</p>
+          )}
+        </section>
+
+        <section className="training-card history-card">
+          <header>
+            <h4>Progress trend</h4>
+            <span className="card-subtitle">Last 30 sessions</span>
+          </header>
           {historyChart ? (
-            <div className="history-chart">
-              {historyChart.path ? (
-                <>
-                  <div className="chart-canvas">
-                    <svg
-                      width={historyChart.width}
-                      height={historyChart.height}
-                      viewBox={`0 0 ${historyChart.width} ${historyChart.height}`}
-                      preserveAspectRatio="none"
-                    >
-                      <defs>
-                        <linearGradient id="trainingChartFill" x1="0" x2="0" y1="0" y2="1">
-                          <stop offset="0%" stopColor="rgba(255, 153, 0, 0.28)" />
-                          <stop offset="100%" stopColor="rgba(255, 153, 0, 0.05)" />
-                        </linearGradient>
-                      </defs>
-                      <path
-                        d={`${historyChart.path} L${historyChart.width - historyChart.marginX},${historyChart.height - historyChart.marginY} L${historyChart.marginX},${historyChart.height - historyChart.marginY} Z`}
-                        fill="url(#trainingChartFill)"
-                        stroke="none"
-                      />
-                      <path
-                        d={historyChart.path}
-                        fill="none"
-                        stroke="var(--primary-color, #ff9900)"
-                        strokeWidth="3"
-                        strokeLinecap="round"
-                      />
-                      {historyChart.yTicks.map(tick => (
-                        <g key={tick.value}>
-                          <line
-                            x1={historyChart.marginX}
-                            x2={historyChart.width - historyChart.marginX}
-                            y1={tick.y}
-                            y2={tick.y}
-                            stroke="rgba(255,255,255,0.06)"
-                            strokeWidth="1"
-                          />
-                        </g>
-                      ))}
-                      {historyChart.markers.map((marker, idx) => (
-                        <g key={`${marker.label}-${idx}`}>
-                          <circle
-                            cx={marker.x}
-                            cy={marker.y}
-                            r="4"
-                            fill="#ff9900"
-                            stroke="rgba(0,0,0,0.4)"
-                            strokeWidth="1"
-                          />
-                        </g>
-                      ))}
-                    </svg>
-                  </div>
-                  <div className="chart-axis">
-                    <div className="chart-y-labels">
-                      {historyChart.yTicks.map(tick => (
-                        <span key={tick.value} style={{ top: `${(tick.y / historyChart.height) * 100}%` }}>
-                          {tick.value.toFixed(0)}
-                        </span>
-                      ))}
-                    </div>
-                    <div className="chart-x-labels">
-                      <span>{historyChart.markers[0].label}</span>
-                      <span>{historyChart.markers[historyChart.markers.length - 1].label}</span>
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <div className="chart-canvas placeholder">
-                  <p className="chart-empty">Complete more sessions to start building a trend.</p>
-                </div>
-              )}
-              <div className="chart-caption">
-                <span>Last {historyChart.points.length} sessions</span>
-                <span className="chart-peak">Peak {historyChart.maxWpm.toFixed(1)} WPM</span>
-                <span className="chart-min">Floor {historyChart.minWpm.toFixed(1)} WPM</span>
-              </div>
-            </div>
+            <svg
+              role="img"
+              aria-label="Adaptive training WPM trend"
+              width={historyChart.width}
+              height={historyChart.height}
+            >
+              <path
+                d={historyChart.path}
+                fill="none"
+                stroke="var(--primary-color, #ff9900)"
+                strokeWidth="2.2"
+              />
+              {historyChart.markers.map((marker, idx) => (
+                <g key={`marker-${idx}`} className="chart-marker" transform={`translate(${marker.x}, ${marker.y})`}>
+                  <circle r="3.4" fill="var(--primary-color, #ff9900)" />
+                  <title>{`${marker.label}: ${marker.wpm.toFixed(1)} WPM`}</title>
+                </g>
+              ))}
+              {historyChart.yTicks.map((tick, idx) => (
+                <g key={`tick-${idx}`} transform={`translate(0, ${tick.y})`} className="chart-tick">
+                  <line x1="0" x2={historyChart.width} stroke="rgba(255,255,255,0.06)" strokeDasharray="4 4" />
+                  <text x="4" y="-4" fill="rgba(255,255,255,0.4)" fontSize="10">
+                    {tick.value.toFixed(0)}
+                  </text>
+                </g>
+              ))}
+            </svg>
           ) : (
             <p className="training-empty">Complete a few more sessions to unlock progress tracking.</p>
-          )}
-        </section>
-
-        <section className="training-card focus-card">
-          <div className="card-header">
-            <h4>Long-Term Focus</h4>
-            {longTermKeys > 0 && (
-              <span className="section-hint">Based on {longTermKeys} tracked keys</span>
-            )}
-          </div>
-          {longTermVisibleStats.length ? (
-            <div className={longTermGridClasses.join(' ')}>
-              {longTermVisibleStats.map(stat => {
-                const accuracy = stat.exposures > 0
-                  ? ((stat.exposures - stat.mistakes) / stat.exposures) * 100
-                  : 100;
-                const label = stat.character === ' ' ? 'Space' : stat.character.toUpperCase();
-                return (
-                  <div key={`overall-${stat.character}`} className="char-stat-row">
-                    <span className="char-label">{label}</span>
-                    <div className="char-bar">
-                      <div
-                        className="char-bar-fill overall"
-                        style={{ width: `${Math.max(5, Math.min(100, accuracy))}%` }}
-                      />
-                    </div>
-                    <span className="char-accuracy">{accuracy.toFixed(0)}%</span>
-                    <span className="char-meta">{stat.mistakes}/{stat.exposures}</span>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <p className="training-empty">Complete a few more sessions to unlock long-term insights.</p>
           )}
         </section>
       </div>
 
       <div className="training-footer">
-        <TutorialAnchor anchorId="finish-practice">
-          <p className="training-footer-note">
-            Training sessions are personalised drills, so leaderboards stay hidden here.
-          </p>
-        </TutorialAnchor>
-        <div className="keyboard-shortcuts">
-          <p>Press <kbd>Tab</kbd> for a new session • <kbd>Esc</kbd> to restart</p>
-        </div>
+        <p className="training-footer-note">
+          Practice streaks boost retention. Keep logging sessions to unlock mastery badges and richer analytics.
+        </p>
       </div>
     </div>
   );
 };
+
 
 TrainingResultsPanel.propTypes = {
   latestStats: PropTypes.shape({
@@ -417,6 +523,7 @@ TrainingResultsPanel.propTypes = {
     accuracy: PropTypes.number,
     totalChars: PropTypes.number,
     errorCount: PropTypes.number,
+    durationSeconds: PropTypes.number,
     charStats: PropTypes.arrayOf(PropTypes.shape({
       character: PropTypes.string,
       exposures: PropTypes.number,
@@ -424,10 +531,35 @@ TrainingResultsPanel.propTypes = {
       extraHits: PropTypes.number,
       avgLatencyMs: PropTypes.number,
       latencySamples: PropTypes.number
+    })),
+    unitStats: PropTypes.arrayOf(PropTypes.shape({
+      unitType: PropTypes.string,
+      token: PropTypes.string,
+      exposures: PropTypes.number,
+      mistakes: PropTypes.number,
+      extraHits: PropTypes.number,
+      latencyMsSum: PropTypes.number,
+      latencySamples: PropTypes.number
     }))
   }),
   trainingState: PropTypes.shape({
-    focusLetters: PropTypes.arrayOf(PropTypes.string)
+    focusLetters: PropTypes.arrayOf(PropTypes.string),
+    focusUnits: PropTypes.array,
+    nextTargets: PropTypes.array,
+    plan: PropTypes.shape({
+      planId: PropTypes.string,
+      generatedAt: PropTypes.string,
+      dueCount: PropTypes.number,
+      blocks: PropTypes.array
+    }),
+    currentBlockIndex: PropTypes.number,
+    blockMeta: PropTypes.shape({
+      id: PropTypes.string,
+      type: PropTypes.string,
+      seconds: PropTypes.number,
+      targets: PropTypes.array
+    }),
+    dueCount: PropTypes.number
   })
 };
 

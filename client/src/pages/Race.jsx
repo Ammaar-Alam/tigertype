@@ -36,7 +36,8 @@ function Race() {
     setSnippetCategory,
     snippetSubject,
     setSnippetSubject,
-    snippetError
+    snippetError,
+    refreshTrainingPlan
   } = useRace();
   const { isRunning, currentSection, currentStepIndex } = useTutorial();
   // index of the practice tutorial step when results screen should appear
@@ -142,6 +143,7 @@ function Race() {
                 loadNewSnippet={loadNewSnippet}
                 snippetError={snippetError}
                 onShowLeaderboard={toggleLeaderboard}
+                refreshTrainingPlan={refreshTrainingPlan}
               />
             </div>
           </TutorialAnchor>

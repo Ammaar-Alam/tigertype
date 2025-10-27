@@ -26,17 +26,18 @@ function TestConfigurator({
   snippetDifficulty,
   snippetCategory,
   snippetSubject,
-  trainingState,
+  trainingState = null,
   setTestMode,
   setTestDuration,
   setSnippetDifficulty,
   setSnippetCategory,
   setSnippetSubject,
   setRaceState,
-  loadNewSnippet,
-  onShowLeaderboard,
+  loadNewSnippet = null,
+  onShowLeaderboard = () => {},
   isLobby = false,
   snippetError = null,
+  refreshTrainingPlan = null,
 }) {
 
   const [subjects, setSubjects] = React.useState(['all']);
@@ -44,6 +45,13 @@ function TestConfigurator({
 
   // Store available difficulties for the current category/subject filters
   const [availableDifficulties, setAvailableDifficulties] = React.useState(DIFFICULTIES);
+
+  const planBlocks = trainingState?.plan?.blocks || [];
+  const totalBlocks = planBlocks.length;
+  const currentIndexRaw = trainingState?.currentBlockIndex ?? 0;
+  const completedBlocks = Math.max(0, Math.min(currentIndexRaw, totalBlocks));
+  const activeIndex = completedBlocks < totalBlocks ? completedBlocks : Math.max(totalBlocks - 1, 0);
+  const progressPercent = totalBlocks ? Math.round((completedBlocks / totalBlocks) * 100) : 0;
 
   // Fetch available difficulties when category or subject filters change
   React.useEffect(() => {
@@ -198,6 +206,9 @@ function TestConfigurator({
       setTimeout(() => {
         loadNewSnippet && loadNewSnippet();
       }, 0);
+      if (typeof refreshTrainingPlan === 'function') {
+        refreshTrainingPlan();
+      }
     }
   };
 
@@ -327,14 +338,122 @@ function TestConfigurator({
         </div>
 
         {testMode === 'training' && (
-          <div className="training-focus-inline" aria-label="Adaptive training focus letters">
-            <TrainingIcon />
-            <span className="label">Focus</span>
-            <span className="value">
-              {(trainingState?.focusLetters && trainingState.focusLetters.length)
-                ? trainingState.focusLetters.slice(0, 6).join(', ')
-                : 'Collect training data to personalise drills'}
-            </span>
+          <div className="training-focus-inline" aria-label="Adaptive training focus">
+            <div className="focus-header">
+              <TrainingIcon />
+              <span className="label">Next Targets</span>
+              {typeof refreshTrainingPlan === 'function' && (
+                <button
+                  type="button"
+                  className="refresh-plan-button"
+                  onClick={() => refreshTrainingPlan()}
+                  disabled={trainingState?.planLoading}
+                >
+                  {trainingState?.planLoading ? 'Refreshing…' : 'Refresh Plan'}
+                </button>
+              )}
+            </div>
+            <div className="focus-values">
+              {(trainingState?.nextTargets && trainingState.nextTargets.length)
+                ? trainingState.nextTargets.slice(0, 6).map((target) => (
+                    <span key={`${target.unitType}:${target.token}`} className="focus-chip">
+                      {target.token.toUpperCase()}
+                    </span>
+                  ))
+                : (<span className="placeholder">Complete more sessions to unlock a personalised plan</span>)}
+            </div>
+          </div>
+        )}
+
+        {testMode === 'training' && (
+          <div className="training-plan-stack">
+            <div className="training-focus-inline" aria-label="Adaptive training focus letters">
+              <div className="focus-header">
+                <TrainingIcon />
+                <span className="label">Focus</span>
+              </div>
+              <span className="value">
+                {(trainingState?.focusLetters && trainingState.focusLetters.length)
+                  ? trainingState.focusLetters.slice(0, 6).join(', ')
+                  : 'Collect training data to personalise drills'}
+              </span>
+            </div>
+
+            <div className="training-plan-card">
+              <div className="plan-card-header">
+                <span className="plan-title">Today&#39;s Plan</span>
+                {typeof refreshTrainingPlan === 'function' && (
+                  <button
+                    type="button"
+                    className="refresh-icon-button"
+                    onClick={() => refreshTrainingPlan()}
+                    disabled={trainingState?.planLoading}
+                    aria-label="Refresh training plan"
+                  >
+                    <i className="bi bi-arrow-repeat"></i>
+                  </button>
+                )}
+              </div>
+
+              {trainingState?.plan && totalBlocks > 0 && (
+                <div className="plan-progress">
+                  <div className="plan-progress-track" aria-hidden="true">
+                    <div className="plan-progress-fill" style={{ width: `${progressPercent}%` }}></div>
+                  </div>
+                  <span className="plan-progress-label">{completedBlocks}/{totalBlocks} blocks completed</span>
+                </div>
+              )}
+
+              {trainingState?.planError && (
+                <div className="plan-error">{trainingState.planError}</div>
+              )}
+              {trainingState?.planLoading && !trainingState?.plan && (
+                <div className="plan-loading">Loading adaptive plan…</div>
+              )}
+              {trainingState?.plan && totalBlocks > 0 && (
+                <ul className="training-plan-list">
+                  {planBlocks.map((block, idx) => {
+                    const isActive = idx === activeIndex;
+                    const isCompleted = idx < completedBlocks;
+                    return (
+                      <li
+                        key={block.id}
+                        className={`${isActive ? 'active' : ''} ${isCompleted ? 'completed' : ''}`}
+                      >
+                        <div className="plan-block-meta">
+                          <span className="block-step">{idx + 1}</span>
+                          <div className="block-copy">
+                            <span className="block-type">{block.type}</span>
+                            <span className="block-duration">{block.seconds || 0}s</span>
+                          </div>
+                        </div>
+                        <div className="block-targets">
+                          {(block.targets || []).length
+                            ? block.targets.slice(0, 4).map((target) => (
+                                <span
+                                  key={`${block.id}-${target.unitType}-${target.token}`}
+                                  className="target-chip"
+                                >
+                                  {target.token.toUpperCase()}
+                                </span>
+                              ))
+                            : <span className="placeholder">General skill mix</span>}
+                        </div>
+                        <div className="block-status" aria-hidden="true">
+                          {isCompleted ? <i className="bi bi-check" /> : (isActive && completedBlocks < totalBlocks ? <span>Up next</span> : '')}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+              {!trainingState?.plan && !trainingState?.planLoading && !trainingState?.planError && (
+                <div className="plan-empty">Start a session to generate an adaptive plan.</div>
+              )}
+              {typeof trainingState?.dueCount === 'number' && (
+                <div className="plan-footnote">{trainingState.dueCount} units due for review</div>
+              )}
+            </div>
           </div>
         )}
 
@@ -457,7 +576,6 @@ function TestConfigurator({
   );
 }
 
-// Prop types remain the same
 TestConfigurator.propTypes = {
   testMode: PropTypes.oneOf(['snippet', 'timed', 'training']).isRequired,
   testDuration: PropTypes.number.isRequired,
@@ -469,7 +587,30 @@ TestConfigurator.propTypes = {
     sessionId: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
     focusLetters: PropTypes.arrayOf(PropTypes.string),
     wordPoolSize: PropTypes.number,
-    latestStats: PropTypes.object
+    latestStats: PropTypes.object,
+    plan: PropTypes.shape({
+      planId: PropTypes.string,
+      generatedAt: PropTypes.string,
+      dueCount: PropTypes.number,
+      blocks: PropTypes.arrayOf(PropTypes.shape({
+        id: PropTypes.string,
+        type: PropTypes.string,
+        seconds: PropTypes.number,
+        targets: PropTypes.array
+      }))
+    }),
+    planLoading: PropTypes.bool,
+    planError: PropTypes.string,
+    currentBlockIndex: PropTypes.number,
+    blockMeta: PropTypes.shape({
+      id: PropTypes.string,
+      type: PropTypes.string,
+      seconds: PropTypes.number,
+      targets: PropTypes.array
+    }),
+    nextTargets: PropTypes.array,
+    focusUnits: PropTypes.array,
+    dueCount: PropTypes.number
   }),
   setTestMode: PropTypes.func.isRequired,
   setTestDuration: PropTypes.func.isRequired,
@@ -478,12 +619,10 @@ TestConfigurator.propTypes = {
   setSnippetSubject: PropTypes.func.isRequired,
   setRaceState: PropTypes.func.isRequired,
   loadNewSnippet: PropTypes.func,
-  onShowLeaderboard: PropTypes.func.isRequired,
-};
-
-TestConfigurator.defaultProps = {
-  trainingState: null,
-  loadNewSnippet: null,
+  onShowLeaderboard: PropTypes.func,
+  isLobby: PropTypes.bool,
+  snippetError: PropTypes.string,
+  refreshTrainingPlan: PropTypes.func
 };
 
 export default TestConfigurator;

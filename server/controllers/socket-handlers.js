@@ -10,7 +10,6 @@ const User = require('../models/user');
 const analytics = require('../utils/analytics');
 const { createTimedTestSnippet, generateTimedText } = require('../utils/timed-test');
 const TrainingModel = require('../models/training');
-const { createTrainingSnippet } = require('../utils/training-text');
 
 // Store active races in memory
 const activeRaces = new Map();
@@ -18,6 +17,8 @@ const activeRaces = new Map();
 const racePlayers = new Map();
 // Store player progress
 const playerProgress = new Map();
+// Aggregate training unit deltas between flushes
+const trainingUnitAggregates = new Map(); // sessionId -> Map(key -> stats)
 
 // Throttle progress updates to avoid spamming
 const PROGRESS_THROTTLE = 100; // ms
@@ -42,6 +43,56 @@ const countdownTimers = new Map(); // lobbyCode -> NodeJS.Timeout
 const sanitizeSnippetText = (text) => {
   if (typeof text !== 'string') return text;
   return text.replace(/(?:\r?\n)+\s*$/u, '');
+};
+
+const NORMALIZED_UNIT_TYPES = new Set(['char', 'digit', 'digraph', 'trigraph', 'word', 'punct']);
+const normalizeUnitType = (unitType) => {
+  const value = (unitType || '').toLowerCase();
+  if (NORMALIZED_UNIT_TYPES.has(value)) {
+    return value;
+  }
+  return 'char';
+};
+
+const normalizeToken = (token) => (token || '').toLowerCase().trim().slice(0, 32);
+
+const accumulateTrainingDelta = (sessionId, items = []) => {
+  if (!sessionId || !Array.isArray(items) || !items.length) return;
+  let bucket = trainingUnitAggregates.get(sessionId);
+  if (!bucket) {
+    bucket = new Map();
+    trainingUnitAggregates.set(sessionId, bucket);
+  }
+
+  items.forEach((item) => {
+    const unitType = normalizeUnitType(item.unitType || item.type);
+    const token = normalizeToken(item.token);
+    if (!token) return;
+    const key = `${unitType}:${token}`;
+    const existing = bucket.get(key) || {
+      unitType,
+      token,
+      exposures: 0,
+      mistakes: 0,
+      extraHits: 0,
+      latencyMsSum: 0,
+      latencySamples: 0
+    };
+    existing.exposures += Math.max(0, parseInt(item.exposures || 0, 10));
+    existing.mistakes += Math.max(0, parseInt(item.mistakes || 0, 10));
+    existing.extraHits += Math.max(0, parseInt(item.extraHits || 0, 10));
+    existing.latencyMsSum += Math.max(0, parseInt(item.latencyMsSum || 0, 10));
+    existing.latencySamples += Math.max(0, parseInt(item.latencySamples || 0, 10));
+    bucket.set(key, existing);
+  });
+};
+
+const flushAggregatedUnits = (sessionId) => {
+  if (!sessionId) return [];
+  const bucket = trainingUnitAggregates.get(sessionId);
+  if (!bucket) return [];
+  trainingUnitAggregates.delete(sessionId);
+  return Array.from(bucket.values());
 };
 
 // Get player data for client, including avatar URL and basic stats
@@ -100,6 +151,29 @@ const fetchUserAvatar = async (userId, socketId) => {
   } catch (err) {
     console.error(`Error fetching avatar for user ${userId} (socket ${socketId}):`, err);
   }
+};
+
+const prepareTrainingSession = async (userId, planOptions = {}, overrides = {}) => {
+  const { plan, progress, block, snippet } = await TrainingModel.getPlanBlock(userId, {
+    planId: planOptions.planId,
+    blockId: planOptions.blockId,
+    wordPoolSize: overrides.wordPoolSize
+  });
+
+  const session = await TrainingModel.createSession(userId, {
+    mode: `plan-${block.type || 'core'}`,
+    durationSeconds: snippet.duration,
+    config: {
+      planId: plan.planId,
+      blockId: block.id,
+      blockType: block.type,
+      targets: block.targets,
+      dueCount: plan.dueCount
+    },
+    snippetId: snippet.id
+  });
+
+  return { plan, progress, block, snippet, session };
 };
 
 // Helper function to find and disconnect existing sessions for the same user ID
@@ -294,6 +368,162 @@ const initialize = (io) => {
       socketId: socket.id
     });
 
+    socket.on('training:plan:get', async (payload = {}, callback = null) => {
+      const safeCallback = typeof callback === 'function' ? callback : () => {};
+      try {
+        const planState = await TrainingModel.getPlanForToday(socket.userInfo.userId, payload || {});
+        safeCallback({ ok: true, ...planState });
+      } catch (err) {
+        console.error('training:plan:get error', err);
+        safeCallback({ ok: false, error: 'FAILED_TO_FETCH_PLAN' });
+      }
+    });
+
+    socket.on('training:start', async (payload = {}, callback = null) => {
+      const safeCallback = typeof callback === 'function' ? callback : () => {};
+      const userIdForPlan = socket.userInfo.userId;
+      if (!userIdForPlan) {
+        safeCallback({ ok: false, error: 'UNAUTHENTICATED' });
+        return;
+      }
+      try {
+        const { plan, progress, block, snippet, session } = await prepareTrainingSession(
+          userIdForPlan,
+          payload || {},
+          { wordPoolSize: payload.wordPoolSize }
+        );
+        trainingUnitAggregates.delete(session.id);
+        safeCallback({
+          ok: true,
+          plan,
+          progress,
+          block,
+          snippet: {
+            id: snippet.id,
+            text: sanitizeSnippetText(snippet.text),
+            duration: snippet.duration,
+            training_focus: snippet.training_focus,
+            is_timed_test: snippet.is_timed_test,
+            is_training_session: true,
+            plan_block_id: snippet.plan_block_id,
+            plan_id: snippet.plan_id
+          },
+          session: {
+            id: session.id,
+            config: session.config
+          }
+        });
+      } catch (err) {
+        console.error('training:start error', err);
+        safeCallback({ ok: false, error: 'FAILED_TO_START' });
+      }
+    });
+
+    socket.on('training:unitsDelta', (payload = {}, callback = null) => {
+      try {
+        const sessionId = payload.sessionId;
+        const items = Array.isArray(payload.items) ? payload.items : [];
+        accumulateTrainingDelta(sessionId, items);
+        if (typeof callback === 'function') {
+          callback({ ok: true });
+        }
+      } catch (err) {
+        console.error('training:unitsDelta error', err);
+        if (typeof callback === 'function') {
+          callback({ ok: false, error: 'FAILED_TO_RECORD' });
+        }
+      }
+    });
+
+    socket.on('training:complete', async (payload = {}, callback = null) => {
+      const safeCallback = typeof callback === 'function' ? callback : () => {};
+      const sessionId = payload.sessionId;
+      if (!sessionId) {
+        safeCallback({ ok: false, error: 'MISSING_SESSION' });
+        return;
+      }
+
+      const aggregate = flushAggregatedUnits(sessionId);
+      const unitStats = Array.isArray(payload.unitStats) ? payload.unitStats : [];
+      const mergedStats = [...unitStats];
+
+      aggregate.forEach((item) => {
+        const existingIndex = mergedStats.findIndex(
+          (stat) =>
+            normalizeUnitType(stat.unitType || stat.type) === item.unitType &&
+            normalizeToken(stat.token) === item.token
+        );
+        if (existingIndex >= 0) {
+          mergedStats[existingIndex].exposures =
+            Math.max(0, parseInt(mergedStats[existingIndex].exposures || 0, 10)) + item.exposures;
+          mergedStats[existingIndex].mistakes =
+            Math.max(0, parseInt(mergedStats[existingIndex].mistakes || 0, 10)) + item.mistakes;
+          mergedStats[existingIndex].extraHits =
+            Math.max(0, parseInt(mergedStats[existingIndex].extraHits || 0, 10)) + item.extraHits;
+          mergedStats[existingIndex].latencyMsSum =
+            Math.max(0, parseInt(mergedStats[existingIndex].latencyMsSum || 0, 10)) + item.latencyMsSum;
+          mergedStats[existingIndex].latencySamples =
+            Math.max(0, parseInt(mergedStats[existingIndex].latencySamples || 0, 10)) + item.latencySamples;
+        } else {
+          mergedStats.push(item);
+        }
+      });
+
+<<<<<<< Updated upstream
+      try {
+        await TrainingModel.completeSession(sessionId, {
+=======
+      let planUpdate = null;
+      try {
+        const { userId } = await TrainingModel.completeSession(sessionId, {
+>>>>>>> Stashed changes
+          totalChars: payload.totalChars || 0,
+          errorCount: payload.errorCount || 0,
+          correctedErrors: payload.correctedErrors || 0,
+          wpm: payload.wpm ?? null,
+          accuracy: payload.accuracy ?? null,
+          charStats: payload.charStats || [],
+          unitStats: mergedStats,
+          keystrokes: payload.keystrokes || []
+        });
+<<<<<<< Updated upstream
+        for (const race of activeRaces.values()) {
+          if (race?.training?.sessionId === sessionId) {
+            race.training.completed = true;
+          }
+        }
+        safeCallback({ ok: true });
+=======
+        if (userId) {
+          try {
+            planUpdate = await TrainingModel.getPlanForToday(userId);
+          } catch (planErr) {
+            console.error('Failed to refresh training plan after completion', planErr);
+          }
+        }
+        for (const race of activeRaces.values()) {
+          if (race?.training?.sessionId === sessionId) {
+            race.training.completed = true;
+            if (planUpdate?.plan) {
+              race.training.plan = planUpdate.plan;
+            }
+            if (planUpdate?.progress) {
+              race.training.planProgress = planUpdate.progress;
+            }
+          }
+        }
+        safeCallback({
+          ok: true,
+          plan: planUpdate?.plan || null,
+          progress: planUpdate?.progress || null
+        });
+>>>>>>> Stashed changes
+      } catch (err) {
+        console.error('training:complete error', err);
+        safeCallback({ ok: false, error: 'FAILED_TO_COMPLETE' });
+      }
+    });
+
     // If no netid, log error but try continuing
     if (!netid) {
       console.error('Socket connection has missing netid, this is unexpected');
@@ -354,44 +584,72 @@ const initialize = (io) => {
         // Get or create snippet text
         if (isTrainingMode) {
           isTimedTest = true;
-          duration = parseInt(options.testDuration, 10) || 30;
-          const wordPoolSize = options.wordPoolSize || options.trainingWordPoolSize || 1000;
-          let focusLetters = Array.isArray(options.trainingFocus) ? options.trainingFocus : [];
-          if (!focusLetters.length) {
-            focusLetters = await TrainingModel.getRecommendations(userId, 6);
-          }
-          if (!focusLetters.length) {
-            focusLetters = ['e', 't', 'a', 'o', 'i', 'n'];
-          }
-
-          const trainingSnippet = createTrainingSnippet({
-            focusLetters,
-            duration,
-            wordPoolSize
-          });
-          snippet = trainingSnippet;
-          snippetId = trainingSnippet.id;
-
-          trainingSession = await TrainingModel.createSession(userId, {
-            mode: 'adaptive-letter',
-            durationSeconds: duration,
-            config: {
+          const wordPoolSize = options.wordPoolSize || options.trainingWordPoolSize || 800;
+          const planOptions = options.trainingPlan || {};
+          try {
+            const { plan, progress, block, snippet: planSnippet, session } = await prepareTrainingSession(
+              userId,
+              planOptions,
+              { wordPoolSize }
+            );
+            snippet = planSnippet;
+            snippetId = planSnippet.id;
+            duration = planSnippet.duration;
+            trainingSession = session;
+            trainingUnitAggregates.delete(trainingSession.id);
+            trainingMeta = {
+              enabled: true,
+              sessionId: session.id,
+              focusLetters: (block.targets || []).map((target) => target.token),
+              wordPoolSize,
+              snippetId,
+              plan: {
+                planId: plan.planId,
+                generatedAt: plan.generatedAt,
+                dueCount: plan.dueCount,
+                blockId: block.id,
+                blockType: block.type,
+                totalBlocks: plan.blocks.length
+              },
+              planProgress: progress,
+              targets: block.targets
+            };
+            console.log(
+              `[training] Created session ${session.id} for user ${userId} plan ${trainingMeta.plan?.planId} block ${block.id}`
+            );
+          } catch (trainingErr) {
+            console.error('Falling back to legacy training snippet generation:', trainingErr);
+            const fallbackFocus = await TrainingModel.getRecommendations(userId, 6);
+            const focusLetters = fallbackFocus.length ? fallbackFocus : ['e', 't', 'a', 'o', 'i', 'n'];
+            const { createTrainingSnippet } = require('../utils/training-text'); // lazy load fallback
+            const trainingSnippet = createTrainingSnippet({
               focusLetters,
+              duration: parseInt(options.testDuration, 10) || 30,
               wordPoolSize
-            },
-            snippetId
-          });
-
-          trainingMeta = {
-            enabled: true,
-            sessionId: trainingSession.id,
-            focusLetters,
-            wordPoolSize,
-            snippetId
-          };
-          console.log(
-            `Created training session ${trainingSession.id} for user ${userId} with focus letters ${focusLetters.join(',')}`
-          );
+            });
+            snippet = trainingSnippet;
+            snippetId = trainingSnippet.id;
+            trainingSession = await TrainingModel.createSession(userId, {
+              mode: 'adaptive-letter',
+              durationSeconds: trainingSnippet.duration,
+              config: {
+                focusLetters,
+                wordPoolSize
+              },
+              snippetId
+            });
+            trainingMeta = {
+              enabled: true,
+              sessionId: trainingSession.id,
+              focusLetters,
+              wordPoolSize,
+              snippetId,
+              plan: null,
+              planProgress: null,
+              targets: focusLetters.map((token) => ({ unitType: 'char', token }))
+            };
+            trainingUnitAggregates.delete(trainingSession.id);
+          }
         } else if (isTimedTest) {
           // Pass wordPoolSize option for filtering commonWords
           snippet = createTimedTestSnippet(duration, { wordPoolSize: options.wordPoolSize });
@@ -1486,45 +1744,74 @@ const initialize = (io) => {
         // Handle adaptive training sessions
         if (race.training?.enabled && race.training.sessionId && !race.training.completed) {
           const trainingPayload = data.training || {};
-
-          if (trainingPayload.sessionId && trainingPayload.sessionId !== race.training.sessionId) {
-            console.warn(
-              `[WARN race:result] Training payload sessionId mismatch for user ${netid}: expected ${race.training.sessionId}, received ${trainingPayload.sessionId}`
-            );
-          } else {
-            const completionData = {
-              totalChars: trainingPayload.totalChars || 0,
-              errorCount: trainingPayload.errorCount || 0,
-              correctedErrors: trainingPayload.correctedErrors || 0,
-              wpm,
-              accuracy,
-              charStats: Array.isArray(trainingPayload.charStats)
-                ? trainingPayload.charStats.map((stat) => ({
-                    character: stat.character,
-                    exposures: stat.exposures || 0,
-                    mistakes: stat.mistakes || 0,
-                    extraHits: stat.extraHits || 0,
-                    avgLatencyMs: stat.avgLatencyMs != null ? Number(stat.avgLatencyMs) : null,
-                    latencySamples: stat.latencySamples || stat.exposures || 0
-                  }))
-                : []
-            };
-
-            try {
-              await TrainingModel.completeSession(race.training.sessionId, completionData);
-              race.training.completed = true;
-              console.log(
-                `[SUCCESS race:result] Recorded training session ${race.training.sessionId} for ${netid}`
-              );
-            } catch (err) {
-              console.error(
-                `[ERROR race:result] Failed to complete training session ${race.training.sessionId} for user ${userId}:`,
-                err
-              );
-            }
+          if (trainingPayload.finalized) {
+            race.training.completed = true;
+            handled = true;
           }
 
-          handled = true;
+          const aggregated = flushAggregatedUnits(race.training.sessionId);
+          const unitStats = Array.isArray(trainingPayload.unitStats) ? trainingPayload.unitStats.slice() : [];
+          aggregated.forEach((item) => {
+            const idx = unitStats.findIndex(
+              (stat) =>
+                normalizeUnitType(stat.unitType || stat.type) === item.unitType &&
+                normalizeToken(stat.token) === item.token
+            );
+            if (idx >= 0) {
+              unitStats[idx].exposures = Math.max(0, parseInt(unitStats[idx].exposures || 0, 10)) + item.exposures;
+              unitStats[idx].mistakes = Math.max(0, parseInt(unitStats[idx].mistakes || 0, 10)) + item.mistakes;
+              unitStats[idx].extraHits = Math.max(0, parseInt(unitStats[idx].extraHits || 0, 10)) + item.extraHits;
+              unitStats[idx].latencyMsSum =
+                Math.max(0, parseInt(unitStats[idx].latencyMsSum || 0, 10)) + item.latencyMsSum;
+              unitStats[idx].latencySamples =
+                Math.max(0, parseInt(unitStats[idx].latencySamples || 0, 10)) + item.latencySamples;
+            } else {
+              unitStats.push(item);
+            }
+          });
+
+          if (!trainingPayload.finalized) {
+            if (trainingPayload.sessionId && trainingPayload.sessionId !== race.training.sessionId) {
+              console.warn(
+                `[WARN race:result] Training payload sessionId mismatch for user ${netid}: expected ${race.training.sessionId}, received ${trainingPayload.sessionId}`
+              );
+            } else {
+              const completionData = {
+                totalChars: trainingPayload.totalChars || 0,
+                errorCount: trainingPayload.errorCount || 0,
+                correctedErrors: trainingPayload.correctedErrors || 0,
+                wpm,
+                accuracy,
+                charStats: Array.isArray(trainingPayload.charStats)
+                  ? trainingPayload.charStats.map((stat) => ({
+                      character: stat.character,
+                      exposures: stat.exposures || 0,
+                      mistakes: stat.mistakes || 0,
+                      extraHits: stat.extraHits || 0,
+                      avgLatencyMs: stat.avgLatencyMs != null ? Number(stat.avgLatencyMs) : null,
+                      latencySamples: stat.latencySamples || stat.exposures || 0
+                    }))
+                  : [],
+                unitStats,
+                keystrokes: Array.isArray(trainingPayload.keystrokes) ? trainingPayload.keystrokes : []
+              };
+
+              try {
+                await TrainingModel.completeSession(race.training.sessionId, completionData);
+                race.training.completed = true;
+                console.log(
+                  `[SUCCESS race:result] Recorded training session ${race.training.sessionId} for ${netid}`
+                );
+              } catch (err) {
+                console.error(
+                  `[ERROR race:result] Failed to complete training session ${race.training.sessionId} for user ${userId}:`,
+                  err
+                );
+              }
+            }
+
+            handled = true;
+          }
         }
 
         // Check if the result is for a timed test

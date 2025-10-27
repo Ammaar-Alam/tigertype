@@ -75,20 +75,30 @@ function Typing({
         ...prev,
         timedTest: {
           enabled: true,
-          duration: testMode === 'training' ? (testDuration || 30) : (testDuration || 15),
+          duration: testMode === 'training' ? (testDuration || 60) : (testDuration || 15)
         },
         training: testMode === 'training'
-          ? { ...(prev.training || {}), enabled: true, latestStats: null }
-          : { ...(prev.training || {}), enabled: false }
+          ? {
+              ...(prev.training || {}),
+              enabled: true,
+              latestStats: null
+            }
+          : {
+              ...(prev.training || {}),
+              enabled: false
+            }
       }));
     } else if (testMode === 'snippet') {
       setRaceState(prev => ({
         ...prev,
         timedTest: {
           enabled: false,
-          duration: 15,
+          duration: 15
         },
-        training: { ...(prev.training || {}), enabled: false }
+        training: {
+          ...(prev.training || {}),
+          enabled: false
+        }
       }));
     }
   }, [testMode, testDuration, raceState.type, setRaceState]);

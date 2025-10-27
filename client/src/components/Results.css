@@ -670,17 +670,17 @@
 .training-header {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-start;
+  align-items: stretch;
   justify-content: space-between;
-  gap: 20px;
+  gap: 24px;
 }
 
 .training-title-block {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  flex: 1 1 320px;
-  min-width: 260px;
+  gap: 14px;
+  flex: 1 1 360px;
+  min-width: 280px;
 }
 
 .training-title-block h3 {
@@ -689,34 +689,77 @@
   letter-spacing: 0.04em;
 }
 
-.training-session-meta {
-  font-size: 0.8rem;
-  color: var(--text-secondary-color, #888);
-  opacity: 0.85;
-}
-
-.focus-chips {
+.plan-status-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
 }
 
-.focus-chip {
-  padding: 4px 10px;
-  border-radius: 999px;
+.plan-pill {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 0.78rem;
+  color: var(--text-secondary-color, #bbb);
+}
+
+.plan-pill.completed {
   background: rgba(255, 153, 0, 0.15);
   color: var(--primary-color, #ff9900);
-  font-size: 0.8rem;
-  font-weight: 600;
 }
 
-.training-metrics {
+.plan-pill.next {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.pill-label {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.68rem;
+  opacity: 0.7;
+}
+
+.pill-value {
+  font-weight: 600;
+  font-size: 0.82rem;
+  color: var(--text-color, #f4f4f4);
+}
+
+.plan-progress-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.75rem;
+  color: var(--text-secondary-color, #aaa);
+}
+
+.plan-progress-track {
+  flex: 1;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.plan-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(255, 153, 0, 0.95), rgba(255, 99, 0, 0.85));
+}
+
+.plan-progress-text {
+  white-space: nowrap;
+}
+
+.training-summary-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(120px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(2, minmax(140px, 1fr));
+  gap: 14px;
   min-width: 240px;
-  max-width: 320px;
-  flex: 0 0 260px;
+  flex: 0 0 280px;
 }
 
 .metric-card {
@@ -742,8 +785,28 @@
 
 .training-body {
   display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
-  gap: 20px;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 24px;
+}
+
+.heatmap-card {
+  grid-column: span 6;
+  min-height: 260px;
+}
+
+.digraph-card {
+  grid-column: span 3;
+  min-height: 220px;
+}
+
+.nextup-card {
+  grid-column: span 3;
+  min-height: 220px;
+}
+
+.history-card {
+  grid-column: span 12;
+  min-height: 220px;
 }
 
 .training-card {
@@ -759,17 +822,131 @@
   overflow: hidden;
 }
 
-.training-card.key-accuracy-card {
-  grid-column: 1;
-  grid-row: span 2;
-  min-height: 320px;
+.card-subtitle {
+  font-size: 0.75rem;
+  color: var(--text-secondary-color, #888);
+  letter-spacing: 0.04em;
 }
 
-.training-card.progress-card,
-.training-card.focus-card {
-  grid-column: 2;
-  min-height: 220px;
+.keyboard-heatmap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 10px;
+  max-width: 100%;
 }
+
+.keyboard-row {
+  display: flex;
+  justify-content: space-evenly;
+  gap: 6px;
+}
+
+.heatmap-key {
+  min-width: 30px;
+  height: 38px;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  color: #0e0e0e;
+  font-size: 0.85rem;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.heatmap-key:hover {
+  transform: translateY(-2px);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
+}
+
+.space-row {
+  justify-content: center;
+}
+
+.space-key {
+  min-width: 200px;
+}
+
+.digraph-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.digraph-row {
+  display: grid;
+  grid-template-columns: 64px 1fr 48px;
+  align-items: center;
+  gap: 10px;
+}
+
+.digraph-token {
+  font-family: var(--mono-font, 'Roboto Mono', monospace);
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  color: var(--text-color, #f6f6f6);
+}
+
+.digraph-bar {
+  position: relative;
+  height: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.digraph-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, rgba(255, 153, 0, 0.9), rgba(255, 90, 0, 0.85));
+  border-radius: 999px;
+}
+
+.digraph-rate {
+  font-size: 0.78rem;
+  color: var(--text-secondary-color, #bbb);
+  text-align: right;
+}
+
+.nextup-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.nextup-list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.token-chip {
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  font-family: var(--mono-font, 'Roboto Mono', monospace);
+  font-size: 0.85rem;
+  color: var(--text-color, #fff);
+}
+
+.token-meta {
+  font-size: 0.78rem;
+  color: var(--text-secondary-color, #999);
+}
+
+.plan-loading,
+.plan-empty,
+.plan-footnote {
+  font-size: 0.78rem;
+  color: var(--text-secondary-color, #999);
+}
+
 
 .card-header {
   display: flex;
@@ -998,17 +1175,42 @@
 }
 
 @media (max-width: 1200px) {
+  .training-summary-grid {
+    grid-template-columns: repeat(2, minmax(120px, 1fr));
+  }
   .training-body {
-    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   }
-
-  .training-card.key-accuracy-card {
-    grid-column: 1 / -1;
-    grid-row: auto;
+  .heatmap-card,
+  .digraph-card,
+  .nextup-card,
+  .history-card {
+    grid-column: span 12;
   }
+}
 
-  .training-card.progress-card,
-  .training-card.focus-card {
-    grid-column: auto;
+@media (max-width: 768px) {
+  .training-header {
+    gap: 16px;
+  }
+  .plan-status-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .plan-progress-bar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+  .plan-progress-text {
+    white-space: normal;
+  }
+  .training-summary-grid {
+    grid-template-columns: minmax(180px, 1fr);
+    flex: 1 1 100%;
+  }
+  .training-body {
+    grid-template-columns: 1fr;
+    gap: 18px;
   }
 }
