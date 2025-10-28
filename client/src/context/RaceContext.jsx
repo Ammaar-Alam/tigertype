@@ -971,7 +971,6 @@ export const RaceProvider = ({ children }) => {
     const previousCorrectChars = typingState.correctChars || 0;
     
     // If there's a new error (wasn't there in previous input)
-    const previousInput = typingState.input;
     let isNewError = false;
     
     // Check if we have a new error that wasn't in the previous input
