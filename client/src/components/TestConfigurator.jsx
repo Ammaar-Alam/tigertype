@@ -356,6 +356,9 @@ function TestConfigurator({
   const activePlan = trainingState?.plan || planPreview;
   const blocks = activePlan?.blocks || [];
   const totalPlanSeconds = blocks.reduce((sum, block) => sum + (block.seconds || 0), 0);
+  const currentBlockIdx = trainingState?.currentBlockIdx ?? 0;
+  const totalBlocks = trainingState?.totalBlocks ?? (blocks.length || null);
+  const currentBlockSeconds = trainingState?.blockSeconds || blocks[0]?.seconds || null;
 
   return (
     <TutorialAnchor anchorId="configurator">
@@ -394,7 +397,14 @@ function TestConfigurator({
                   ))}
                 </div>
                 <div className="plan-meta">
-                  <span className="plan-summary">Total · {formatSeconds(totalPlanSeconds || activePlan?.totalSeconds || 0)}</span>
+                  <span className="plan-summary">
+                    Block {Math.min(currentBlockIdx + 1, totalBlocks || currentBlockIdx + 1)}
+                    {totalBlocks ? ` of ${totalBlocks}` : ''}
+                    {currentBlockSeconds ? ` · ${formatSeconds(currentBlockSeconds)}` : ''}
+                  </span>
+                  <span className="plan-total">
+                    Total · {formatSeconds(totalPlanSeconds || activePlan?.totalSeconds || 0)}
+                  </span>
                   {activePlan?.focus?.length ? (
                     <span className="plan-focus">Next up: {activePlan.focus.slice(0, 3).map((unit) => unit.display || unit.token).join(', ')}</span>
                   ) : null}

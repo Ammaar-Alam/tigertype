@@ -342,6 +342,9 @@ export const RaceProvider = ({ children }) => {
             wordPoolSize: data.training.wordPoolSize || 1000,
             plan: data.training.plan || null,
             totalSeconds: data.training.totalSeconds || null,
+            blockSeconds: data.training.blockSeconds || null,
+            currentBlockIdx: data.training.currentBlockIdx || 0,
+            totalBlocks: data.training.totalBlocks || (data.training.plan?.blocks?.length ?? null),
             latestStats: null
           }
         : {

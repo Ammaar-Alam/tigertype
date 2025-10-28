@@ -425,26 +425,29 @@ const initialize = (io) => {
           const wordPoolSize = options.wordPoolSize || options.trainingWordPoolSize || 1000;
           const plan = await TrainingModel.getPlanForToday(userId, { maxCoreBlocks: maxBlocks });
           const blocks = Array.isArray(plan?.blocks) ? plan.blocks : [];
-          const aggregatedText = blocks.length
-            ? blocks.map((block) => (block.text || '')).filter(Boolean).join('  ')
-            : null;
-          const derivedDuration = blocks.reduce((sum, block) => sum + (block.seconds || 45), 0);
-          duration = derivedDuration || parseInt(options.testDuration, 10) || 360;
-          if (!aggregatedText) {
-            const fallback = createTrainingSnippet({ duration });
+          const totalPlanSecondsRaw = blocks.reduce((sum, block) => sum + (block.seconds || 45), 0);
+          const activeBlock = blocks[0];
+          const blockText = activeBlock?.text ? activeBlock.text.trim() : '';
+          const blockDuration = activeBlock?.seconds || parseInt(options.testDuration, 10) || 45;
+          const totalPlanSeconds = totalPlanSecondsRaw > 0 ? totalPlanSecondsRaw : blockDuration;
+
+          if (!blockText) {
+            const fallback = createTrainingSnippet({ duration: blockDuration });
             snippet = fallback;
             snippetId = fallback.id;
+            duration = blockDuration;
           } else {
-            snippetId = `training-plan-${Date.now()}`;
+            duration = blockDuration;
+            snippetId = `training-plan-${Date.now()}-block0`;
             snippet = {
               id: snippetId,
-              text: aggregatedText,
+              text: blockText,
               source: 'Training Mode',
               category: 'training',
               difficulty: 1,
               is_timed_test: true,
               is_training_session: true,
-              duration,
+              duration: blockDuration,
               training_focus: (plan.focus || []).map((unit) => unit.token)
             };
           }
@@ -455,7 +458,8 @@ const initialize = (io) => {
             config: {
               plan,
               requestedDuration: duration,
-              wordPoolSize
+              wordPoolSize,
+              blockIndex: 0
             },
             snippetId,
             plan
@@ -467,11 +471,14 @@ const initialize = (io) => {
             plan,
             focusLetters: (plan.focus || []).map((unit) => unit.token),
             snippetId,
-            totalSeconds: duration,
+            totalSeconds: totalPlanSeconds,
+            blockSeconds: duration,
+            currentBlockIdx: 0,
+            totalBlocks: blocks.length,
             wordPoolSize
           };
           console.log(
-            `Created training session ${trainingSession.id} for user ${userId} with ${blocks.length} blocks`
+            `Created training session ${trainingSession.id} for user ${userId} with ${blocks.length} blocks (block duration ${duration}s)`
           );
         } else if (isTimedTest) {
           // Pass wordPoolSize option for filtering commonWords

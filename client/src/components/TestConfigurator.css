@@ -3,25 +3,20 @@
 /* Horizontal layout configurator - slim bar */
 .test-configurator {
   display: flex;
-  flex-direction: row;
   align-items: center;
-  /* manage spacing via column/row gap to keep leaderboard button inline */
-  column-gap: 18px;
-  row-gap: 10px;
-  flex-wrap: wrap;
-  padding: 8px 5%;
-  margin-bottom: 20px;
-  width: -webkit-fill-available;
-  max-width: max-content;
-  margin-left: auto;
-  margin-right: auto;
+  justify-content: center;
+  gap: 18px;
+  flex-wrap: nowrap;
+  padding: 10px 32px;
+  margin: 0 auto 20px auto;
+  width: fit-content;
+  max-width: calc(100% - 32px);
   background-color: var(--type-container-color);
-  border-radius: 8px;
+  border-radius: 999px;
   position: relative;
   z-index: 10;
-  min-height: 40px;
+  min-height: 48px;
   overflow: visible;
-  /* justify-content: center; */
 }
 
 /* Mode selection group */
@@ -77,8 +72,7 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  margin-left: 16px;
-  padding: 4px 10px;
+  padding: 4px 12px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.04);
   color: var(--text-secondary-color, #888);
@@ -105,19 +99,27 @@
 }
 
 .training-plan-preview {
-  margin: 12px 0 0 16px;
-  padding: 10px 12px;
-  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 14px;
+  border-radius: 999px;
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid rgba(255, 255, 255, 0.05);
   color: var(--text-secondary-color, #bbb);
   font-size: 0.85rem;
+  flex: 0 0 auto;
 }
 
 .training-plan-preview .plan-chip-row {
-  display: flex;
+  display: inline-flex;
   flex-wrap: wrap;
   gap: 6px;
+  align-items: center;
+}
+
+.training-plan-preview > * {
+  flex: 0 0 auto;
 }
 
 .training-plan-preview .plan-chip {
@@ -146,12 +148,35 @@
 }
 
 .training-plan-preview .plan-meta {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 8px;
+  display: inline-flex;
+  align-items: center;
   font-size: 0.75rem;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+.training-plan-preview .plan-meta span {
+  white-space: nowrap;
+}
+
+.training-plan-preview .plan-total {
+  color: var(--text-secondary-color, #bbb);
+}
+
+@media (max-width: 960px) {
+  .test-configurator {
+    flex-wrap: wrap;
+    border-radius: 16px;
+    padding: 12px 18px;
+  }
+
+  .training-plan-preview {
+    width: 100%;
+    justify-content: center;
+    flex-wrap: wrap;
+    border-radius: 16px;
+    margin-top: 8px;
+  }
 }
 
 .training-plan-preview .plan-summary {
