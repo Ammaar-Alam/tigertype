@@ -1,6 +1,6 @@
 // [AI DISCLAIMER: AI was used to help debug socket emit for timed tests; lines 394-408]
 
-import { useState, useEffect, useRef, useLayoutEffect } from 'react';
+import { useState, useEffect, useRef, useLayoutEffect, useCallback } from 'react';
 import { useRace } from '../context/RaceContext';
 import { useSocket } from '../context/SocketContext';
 import playKeySound from './Sound.jsx';
@@ -65,6 +65,57 @@ function Typing({
     return (getComputedStyle(document.documentElement).getPropertyValue('--glide-cursor-enabled') || '0').trim() === '1';
   });
   const initialCursorSetRef = useRef(false);
+  const initialCursorStyle = typeof document !== 'undefined'
+    ? (document.documentElement.getAttribute('data-cursor') || 'block')
+    : 'block';
+  const cursorStyleRef = useRef(initialCursorStyle);
+  const [cursorStyle, setCursorStyle] = useState(initialCursorStyle);
+  const typingActiveRef = useRef(false);
+  const [typingActive, setTypingActive] = useState(false);
+
+  const setTypingActiveState = useCallback((active) => {
+    if (typingActiveRef.current === active) return;
+    typingActiveRef.current = active;
+    setTypingActive(active);
+    if (typeof document !== 'undefined') {
+      const overlay = cursorRef.current;
+      if (overlay) {
+        if (cursorStyleRef.current === 'caret') {
+          overlay.classList.toggle('typing-active', active);
+        } else {
+          overlay.classList.remove('typing-active');
+        }
+      }
+      const mode = cursorStyleRef.current === 'caret' && active ? 'solid' : 'blink';
+      document.documentElement.setAttribute('data-caret-blink', mode);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return undefined;
+    return () => {
+      document.documentElement.removeAttribute('data-caret-blink');
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return undefined;
+    const root = document.documentElement;
+    const syncCursorStyle = () => {
+      const next = root.getAttribute('data-cursor') || 'block';
+      cursorStyleRef.current = next;
+      setCursorStyle(next);
+      if (next !== 'caret') {
+        setTypingActiveState(false);
+      } else if (!typingActiveRef.current) {
+        document.documentElement.setAttribute('data-caret-blink', 'blink');
+      }
+    };
+    syncCursorStyle();
+    const observer = new MutationObserver(syncCursorStyle);
+    observer.observe(root, { attributes: true, attributeFilter: ['data-cursor'] });
+    return () => observer.disconnect();
+  }, [setTypingActiveState]);
   
   // Use testMode and testDuration for timed tests if provided
   useEffect(() => {
@@ -200,6 +251,15 @@ function Typing({
   }, [typingState.position]);
 
   // Track snippet changes to reset input
+  useEffect(() => {
+    const active = ((raceState.inProgress || raceState.type === 'practice') && input.length > 0 && !typingState.completed);
+    setTypingActiveState(active);
+  }, [input.length, raceState.inProgress, raceState.type, typingState.completed, setTypingActiveState]);
+
+  useEffect(() => {
+    return () => setTypingActiveState(false);
+  }, [setTypingActiveState]);
+
   useEffect(() => {
     if (raceState.snippet && raceState.snippet.id !== snippetId) {
       setSnippetId(raceState.snippet.id);
@@ -751,17 +811,26 @@ function Typing({
     const y = Math.round((rect.top - containerRect.top) + scrollY);
 
     // Determine caret vs block based on Settings-managed CSS var
-    const useCaret = (document.documentElement.getAttribute('data-cursor') === 'caret');
+    const useCaret = (cursorStyleRef.current === 'caret');
 
     // Size overlay to target element
     const height = rect.height;
     const width = useCaret ? 0 : rect.width; // caret drawn via border-left for crispness
     overlay.style.height = `${height}px`;
     overlay.style.width = `${width}px`;
-    overlay.className = `cursor-overlay ${useCaret ? 'caret' : 'block'}`;
+    overlay.className = 'cursor-overlay';
+    if (useCaret) {
+      overlay.classList.add('caret');
+      overlay.classList.remove('block');
+      overlay.classList.toggle('typing-active', typingActiveRef.current);
+    } else {
+      overlay.classList.add('block');
+      overlay.classList.remove('caret');
+      overlay.classList.remove('typing-active');
+    }
 
     // Cursor-specific duration (caret snappier)
-    overlay.style.setProperty('--cursor-glide-duration', useCaret ? '95ms' : '95ms');
+    overlay.style.setProperty('--cursor-glide-duration', useCaret ? '85ms' : '110ms');
 
     // First placement should not animate from origin
     if (!initialCursorSetRef.current) {
@@ -1019,6 +1088,8 @@ function Typing({
     };
   }, []);
 
+  const caretSolid = typingActive && cursorStyle === 'caret';
+
   return (
     <>
       <div className="stats-container">{getStatsContent()}</div>
@@ -1026,7 +1097,7 @@ function Typing({
       {/* Only show typing area (snippet + input) if race is NOT completed */}
       {!raceState.completed && (
           <div className="typing-area">
-            <div className={`snippet-display ${isShaking ? 'shake-animation' : ''} ${glideEnabled ? 'glide-on' : ''}`}>
+            <div className={`snippet-display ${isShaking ? 'shake-animation' : ''} ${glideEnabled ? 'glide-on' : ''} ${caretSolid ? 'caret-solid' : ''}`}>
               {/* Smooth-glide overlay cursor (rendered behind text) */}
               <div ref={cursorRef} className="cursor-overlay block" aria-hidden="true" />
               {/* Error message moved OUTSIDE snippet-display */}

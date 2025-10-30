@@ -324,6 +324,29 @@
   animation: blink 1s infinite;
 }
 
+:root[data-cursor='caret'] .snippet-display .current {
+  background-color: transparent !important;
+  color: inherit !important;
+  font-weight: inherit;
+  animation: none !important;
+  text-shadow: none;
+  transition: color 120ms ease;
+}
+
+:root[data-cursor='caret'] .snippet-display .current.error {
+  color: var(--error-color);
+  text-shadow: none;
+}
+
+:root[data-cursor='caret'][data-caret-blink='blink'] .snippet-display .current::before {
+  animation: caretBlink 1.2s ease-in-out infinite;
+}
+
+:root[data-cursor='caret'][data-caret-blink='solid'] .snippet-display .current::before {
+  animation: none !important;
+  opacity: 1;
+}
+
 /* Default caret rendering (line cursor) when block cursor is disabled */
 .current::before {
   visibility: var(--line-cursor);
@@ -369,6 +392,16 @@
   display: none !important;
 }
 
+:root[data-cursor='caret'] .snippet-display.glide-on .current {
+  color: inherit !important;
+  background-color: transparent !important;
+  animation: none !important;
+}
+
+:root[data-cursor='caret'] .snippet-display.glide-on .current::before {
+  display: none !important;
+}
+
 .snippet-display {
   position: relative;
 }
@@ -382,9 +415,9 @@
   pointer-events: none;
   z-index: 0; /* behind the text */
   transition:
-    transform var(--cursor-glide-duration, 95ms) cubic-bezier(0.2, 0.8, 0.2, 1),
-    width     var(--cursor-glide-duration, 95ms) cubic-bezier(0.2, 0.8, 0.2, 1),
-    height    var(--cursor-glide-duration, 95ms) cubic-bezier(0.2, 0.8, 0.2, 1);
+    transform var(--cursor-glide-duration, 90ms) cubic-bezier(0.24, 0.92, 0.35, 1),
+    width     var(--cursor-glide-duration, 90ms) cubic-bezier(0.24, 0.92, 0.35, 1),
+    height    var(--cursor-glide-duration, 90ms) cubic-bezier(0.24, 0.92, 0.35, 1);
   opacity: calc(var(--glide-cursor-enabled, 0)); /* 0 or 1 set by Settings */
   border-radius: 2px;
   backface-visibility: hidden;
@@ -401,6 +434,29 @@
   box-shadow: 0 0 0.001px var(--caret-color); /* sub-pixel hinting */
   z-index: 2; /* above text so thin caret remains visible */
   animation: caretBlink 1.2s ease-in-out infinite;
+}
+:root[data-cursor='caret'][data-caret-blink='solid'] .cursor-overlay.caret {
+  animation: none !important;
+  opacity: 1 !important;
+}
+.cursor-overlay.caret.typing-active {
+  animation: none !important;
+  opacity: 1 !important;
+}
+
+.snippet-display.caret-solid .cursor-overlay.caret {
+  animation: none !important;
+  opacity: 1 !important;
+}
+
+.snippet-display.caret-solid .current,
+.snippet-display.caret-solid .current::before {
+  animation: none !important;
+  opacity: 1 !important;
+}
+
+.snippet-display.caret-solid .current::before {
+  background: var(--caret-color) !important;
 }
 
 /* Non-glide caret (pseudo) also blinks smoothly */
